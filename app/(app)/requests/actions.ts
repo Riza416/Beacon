@@ -744,6 +744,23 @@ export async function markTagsViewed(
   return { ok: true };
 }
 
+export async function setTeamPriority(
+  requestId: string,
+  value: number
+): Promise<{ ok: true }> {
+  const { supabase } = await adminAction();
+  if (!Number.isFinite(value) || value < 0 || value > 1_000_000) {
+    throw new Error("Priority must be a positive number");
+  }
+  const { error } = await supabase
+    .from("requests")
+    .update({ team_priority: Math.round(value) })
+    .eq("id", requestId);
+  if (error) throw new Error(error.message);
+  revalidatePath("/");
+  return { ok: true };
+}
+
 export async function reorderTeamPriority(
   requestId: string,
   direction: "up" | "down"

@@ -527,6 +527,7 @@ function RequestRowItem({
         <DashboardRowControls
           requestId={r.id}
           currentStatusId={r.status_id}
+          currentPriority={r.team_priority}
           statuses={statuses}
           isFirstInTeam={isFirstInTeam}
           isLastInTeam={isLastInTeam}
