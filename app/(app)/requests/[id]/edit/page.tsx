@@ -1,0 +1,101 @@
+import Link from "next/link";
+import { notFound, redirect } from "next/navigation";
+import { requireProfile } from "@/lib/auth";
+import { createClient } from "@/lib/supabase/server";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { RequestForm } from "@/components/request-form";
+import type { FieldDefinition, FieldValue, RequestRow } from "@/lib/types";
+
+export const dynamic = "force-dynamic";
+
+interface EditPageProps {
+  params: Promise<{ id: string }>;
+}
+
+export default async function EditRequestPage({ params }: EditPageProps) {
+  const { id } = await params;
+  const profile = await requireProfile();
+  const supabase = await createClient();
+
+  const { data: request } = await supabase
+    .from("requests")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle<RequestRow>();
+
+  if (!request) notFound();
+
+  const isAdmin = profile.role === "admin";
+  const isAuthor = request.author_id === profile.id;
+  const isDraft = request.state === "draft";
+
+  // If not editable, send the user to the detail page.
+  if (!isDraft && !isAdmin) {
+    redirect(`/requests/${id}`);
+  }
+  if (isDraft && !isAuthor && !isAdmin) {
+    redirect(`/requests/${id}`);
+  }
+
+  const { data: fields } = await supabase
+    .from("request_field_definitions")
+    .select("*")
+    .eq("is_active", true)
+    .order("display_order", { ascending: true })
+    .returns<FieldDefinition[]>();
+
+  const { data: values } = await supabase
+    .from("request_field_values")
+    .select("*")
+    .eq("request_id", id)
+    .returns<FieldValue[]>();
+
+  const canSubmit = isAuthor && isDraft;
+
+  return (
+    <div className="space-y-6">
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {isDraft ? "Edit draft" : "Edit request"}
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            {isDraft
+              ? "Save as you go. Submit when you're ready for the product team to look."
+              : "Admin edit mode."}
+          </p>
+        </div>
+        <Button asChild variant="ghost">
+          <Link href={`/requests/${id}`}>View detail</Link>
+        </Button>
+      </header>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Request details</CardTitle>
+          <CardDescription>
+            Required fields are marked with a red asterisk. Soft-required
+            fields have a small dot — you can skip them but the team may ask
+            for more info.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <RequestForm
+            request={request}
+            fields={fields ?? []}
+            values={values ?? []}
+            canSubmit={canSubmit}
+            uploaderId={profile.id}
+          />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
