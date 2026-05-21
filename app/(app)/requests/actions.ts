@@ -53,6 +53,7 @@ type FormValues = Record<string, string | boolean>;
 interface FormState {
   title: string;
   summary: string;
+  productId: string | null;
   values: FormValues;
 }
 
@@ -86,6 +87,7 @@ const commentSchema = z.object({
 const formStateSchema = z.object({
   title: z.string().max(500),
   summary: z.string().max(20000),
+  productId: z.string().uuid().nullable(),
   values: z.record(z.string(), z.union([z.string(), z.boolean()])),
 });
 
@@ -187,6 +189,7 @@ async function persistFormState(
     .update({
       title,
       summary: summary.length === 0 ? null : summary,
+      product_id: parsed.productId,
     })
     .eq("id", requestId);
   if (reqErr) throw new Error(reqErr.message);

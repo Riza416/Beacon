@@ -55,6 +55,12 @@ export default async function EditRequestPage({ params }: EditPageProps) {
     .eq("request_id", id)
     .returns<FieldValue[]>();
 
+  const { data: products } = await supabase
+    .from("products")
+    .select("id, name")
+    .order("name")
+    .returns<{ id: string; name: string }[]>();
+
   // Sign URLs for any image values so the form can show a live preview of
   // what's already attached, not just the filename.
   const signedUrls: Record<string, string> = {};
@@ -110,6 +116,7 @@ export default async function EditRequestPage({ params }: EditPageProps) {
             hasTeam={Boolean(profile.team_id)}
             uploaderId={profile.id}
             signedUrls={signedUrls}
+            products={products ?? []}
           />
         </CardContent>
       </Card>

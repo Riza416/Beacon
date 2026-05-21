@@ -25,6 +25,7 @@ interface RequestRowJoined {
   priority: number;
   team_priority: number;
   team_id: string | null;
+  product_id: string | null;
   status_id: string | null;
   submitted_at: string | null;
   updated_at: string;
@@ -32,6 +33,7 @@ interface RequestRowJoined {
   author_id: string;
   status: { id: string; label: string; color: string } | null;
   team: { id: string; name: string } | null;
+  product: { id: string; name: string } | null;
   author: { full_name: string | null; email: string | null } | null;
 }
 
@@ -78,30 +80,40 @@ async function Dashboard({
   const supabase = await createClient();
   const isAdmin = profile.role === "admin";
 
-  const [{ data: statuses }, { data: teams }, { data: allAuthors }] =
-    await Promise.all([
-      supabase
-        .from("statuses")
-        .select("*")
-        .order("display_order")
-        .returns<Status[]>(),
-      supabase
-        .from("teams")
-        .select("id, name")
-        .order("name")
-        .returns<Pick<Team, "id" | "name">[]>(),
-      supabase
-        .from("profiles")
-        .select("id, full_name, email")
-        .returns<{ id: string; full_name: string | null; email: string | null }[]>(),
-    ]);
+  const [
+    { data: statuses },
+    { data: teams },
+    { data: products },
+    { data: allAuthors },
+  ] = await Promise.all([
+    supabase
+      .from("statuses")
+      .select("*")
+      .order("display_order")
+      .returns<Status[]>(),
+    supabase
+      .from("teams")
+      .select("id, name")
+      .order("name")
+      .returns<Pick<Team, "id" | "name">[]>(),
+    supabase
+      .from("products")
+      .select("id, name")
+      .order("name")
+      .returns<{ id: string; name: string }[]>(),
+    supabase
+      .from("profiles")
+      .select("id, full_name, email")
+      .returns<{ id: string; full_name: string | null; email: string | null }[]>(),
+  ]);
 
   let baseQuery = supabase
     .from("requests")
     .select(
-      "id, title, summary, state, priority, team_priority, team_id, status_id, submitted_at, updated_at, notion_url, author_id, " +
+      "id, title, summary, state, priority, team_priority, team_id, product_id, status_id, submitted_at, updated_at, notion_url, author_id, " +
         "status:statuses(id, label, color), " +
         "team:teams!requests_team_id_fkey(id, name), " +
+        "product:products(id, name), " +
         "author:profiles!requests_author_id_fkey(full_name, email)"
     );
 
@@ -138,24 +150,24 @@ async function Dashboard({
     (r) => r.state === "submitted" && !r.status_id
   );
 
-  // Group by team. The query is already ordered by team_priority ascending so
-  // each group preserves its priority order.
-  const byTeam = new Map<string | null, RequestRowJoined[]>();
+  // Group by product. The base query is already ordered by team_priority
+  // ascending, so each group preserves its priority order.
+  const byProduct = new Map<string | null, RequestRowJoined[]>();
   for (const r of requests ?? []) {
-    const key = r.team_id ?? null;
-    const arr = byTeam.get(key) ?? [];
+    const key = r.product_id ?? null;
+    const arr = byProduct.get(key) ?? [];
     arr.push(r);
-    byTeam.set(key, arr);
+    byProduct.set(key, arr);
   }
   const orderedKeys: (string | null)[] = [];
-  for (const t of teams ?? []) {
-    if (byTeam.has(t.id)) orderedKeys.push(t.id);
+  for (const p of products ?? []) {
+    if (byProduct.has(p.id)) orderedKeys.push(p.id);
   }
-  if (byTeam.has(null)) orderedKeys.push(null);
-  const teamName = (id: string | null) =>
+  if (byProduct.has(null)) orderedKeys.push(null);
+  const productName = (id: string | null) =>
     id === null
-      ? "Unassigned"
-      : (teams ?? []).find((t) => t.id === id)?.name ?? "Unknown team";
+      ? "No product"
+      : (products ?? []).find((p) => p.id === id)?.name ?? "Unknown product";
 
   // Tagged-for-me + recent comments are personal sections — they always show
   // when the current user has something there, regardless of role.
@@ -241,9 +253,9 @@ async function Dashboard({
       <section className="space-y-3">
         <div className="flex items-end justify-between gap-3">
           <div>
-            <h2 className="text-lg font-medium">All requests by team</h2>
+            <h2 className="text-lg font-medium">All requests by product</h2>
             <p className="text-xs text-muted-foreground">
-              Sorted by team priority within each group.
+              Sorted by priority within each product group.
             </p>
           </div>
           {hasFilters && (
@@ -256,12 +268,12 @@ async function Dashboard({
           <EmptyDashboardCard hasFilters={hasFilters} />
         ) : (
           <div className="space-y-6">
-            {orderedKeys.map((teamId) => {
-              const rows = byTeam.get(teamId) ?? [];
+            {orderedKeys.map((productId) => {
+              const rows = byProduct.get(productId) ?? [];
               return (
-                <div key={teamId ?? "unassigned"} className="space-y-2">
+                <div key={productId ?? "no-product"} className="space-y-2">
                   <h3 className="text-sm font-medium text-muted-foreground">
-                    {teamName(teamId)}{" "}
+                    {productName(productId)}{" "}
                     <span className="text-xs text-muted-foreground/70">
                       ({rows.length})
                     </span>
@@ -274,6 +286,7 @@ async function Dashboard({
                             key={r.id}
                             row={r}
                             statuses={statuses ?? []}
+                            position={idx + 1}
                             isFirstInTeam={idx === 0}
                             isLastInTeam={idx === rows.length - 1}
                             isAdmin={isAdmin}
@@ -389,12 +402,14 @@ function RequestList({
   compact = false,
   hideControls = false,
   isAdmin,
+  showPosition = true,
 }: {
   rows: RequestRowJoined[];
   statuses: Status[];
   compact?: boolean;
   hideControls?: boolean;
   isAdmin: boolean;
+  showPosition?: boolean;
 }) {
   return (
     <Card>
@@ -405,6 +420,7 @@ function RequestList({
               key={r.id}
               row={r}
               statuses={statuses}
+              position={showPosition ? idx + 1 : undefined}
               isFirstInTeam={idx === 0}
               isLastInTeam={idx === rows.length - 1}
               compact={compact}
@@ -421,6 +437,7 @@ function RequestList({
 function RequestRowItem({
   row: r,
   statuses,
+  position,
   isFirstInTeam,
   isLastInTeam,
   compact = false,
@@ -429,6 +446,7 @@ function RequestRowItem({
 }: {
   row: RequestRowJoined;
   statuses: Status[];
+  position?: number;
   isFirstInTeam: boolean;
   isLastInTeam: boolean;
   compact?: boolean;
@@ -440,6 +458,15 @@ function RequestRowItem({
     <li
       className={`flex flex-wrap items-center gap-3 ${compact ? "p-3" : "p-4"}`}
     >
+      {position !== undefined && (
+        <span
+          className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-xs font-semibold tabular-nums text-primary"
+          aria-label={`Priority ${position}`}
+          title={`Priority ${position}`}
+        >
+          {position}
+        </span>
+      )}
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <Link
@@ -456,6 +483,7 @@ function RequestRowItem({
               {r.status.label}
             </Badge>
           )}
+          {r.team && <Badge variant="outline">{r.team.name}</Badge>}
           {r.notion_url && (
             <a
               href={r.notion_url}
@@ -469,7 +497,6 @@ function RequestRowItem({
         </div>
         <p className="mt-1 text-xs text-muted-foreground">
           {r.author?.email ?? r.author?.full_name ?? "Unknown"}
-          {r.team && <span> · {r.team.name}</span>}
           {" · "}
           {formatDate(r.updated_at)}
         </p>

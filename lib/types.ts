@@ -19,6 +19,14 @@ export interface Team {
   updated_at: string;
 }
 
+export interface Product {
+  id: string;
+  name: string;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Profile {
   id: string;
   full_name: string | null;
@@ -68,6 +76,7 @@ export interface RequestRow {
   author_id: string;
   team_id: string | null;
   status_id: string | null;
+  product_id: string | null;
   priority: number;
   team_priority: number;
   state: RequestState;

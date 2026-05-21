@@ -60,6 +60,7 @@ type CommentWithAuthor = Comment & {
 
 type RequestWithJoins = RequestRow & {
   status: { id: string; label: string; color: string } | null;
+  product: { id: string; name: string } | null;
   author: { full_name: string | null; email: string | null } | null;
 };
 
@@ -71,7 +72,7 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
   const { data: request } = await supabase
     .from("requests")
     .select(
-      "*, status:statuses(id, label, color), author:profiles!requests_author_id_fkey(full_name, email)"
+      "*, status:statuses(id, label, color), product:products(id, name), author:profiles!requests_author_id_fkey(full_name, email)"
     )
     .eq("id", id)
     .maybeSingle<RequestWithJoins>();
@@ -199,6 +200,9 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
               >
                 {request.status.label}
               </Badge>
+            )}
+            {request.product && (
+              <Badge variant="outline">{request.product.name}</Badge>
             )}
             {request.notion_url && (
               <a

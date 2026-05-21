@@ -50,6 +50,8 @@ interface RequestFormProps {
   /** Signed URLs (keyed by storage path) for any existing image attachments,
    * so the form can show a preview of what's already saved. */
   signedUrls?: Record<string, string>;
+  /** Admin-configured catalog the author picks one of. */
+  products: { id: string; name: string }[];
 }
 
 type FormValue = string | boolean | string[];
@@ -104,10 +106,14 @@ export function RequestForm({
   hasTeam,
   uploaderId,
   signedUrls,
+  products,
 }: RequestFormProps) {
   const router = useRouter();
   const [title, setTitle] = React.useState(request.title ?? "");
   const [summary, setSummary] = React.useState(request.summary ?? "");
+  const [productId, setProductId] = React.useState<string | null>(
+    request.product_id ?? null
+  );
 
   // Per-(field, type) values keyed by `${field_id}::${type}`.
   const initialFormValues = React.useMemo<Record<string, FormValue>>(() => {
@@ -169,7 +175,7 @@ export function RequestForm({
         }
       }
     }
-    return { title, summary, values: valuesPayload };
+    return { title, summary, productId, values: valuesPayload };
   }
 
   function onSave() {
@@ -276,6 +282,32 @@ export function RequestForm({
           placeholder="A short description of what you're asking for."
           rows={4}
         />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="product">Product</Label>
+        <Select
+          value={productId ?? "__none__"}
+          onValueChange={(v) => setProductId(v === "__none__" ? null : v)}
+        >
+          <SelectTrigger id="product">
+            <SelectValue placeholder="Pick a product" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__none__">No product</SelectItem>
+            {products.map((p) => (
+              <SelectItem key={p.id} value={p.id}>
+                {p.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {products.length === 0 && (
+          <p className="text-xs text-muted-foreground">
+            No products configured yet — ask an admin to add some under{" "}
+            <code>/admin/products</code>.
+          </p>
+        )}
       </div>
 
       {fields.map((f) => {

@@ -78,6 +78,9 @@ export default async function Nav() {
                 <Link href="/admin/teams" className="text-muted-foreground hover:text-foreground">
                   Teams
                 </Link>
+                <Link href="/admin/products" className="text-muted-foreground hover:text-foreground">
+                  Products
+                </Link>
                 <Link href="/admin/requirements" className="text-muted-foreground hover:text-foreground">
                   Fields
                 </Link>
