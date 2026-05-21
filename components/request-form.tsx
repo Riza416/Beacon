@@ -29,6 +29,7 @@ import {
   submitRequest,
   setFieldFile,
 } from "@/app/(app)/requests/actions";
+import { ScreenshotInput } from "@/components/screenshot-input";
 import type { SubmitResult } from "@/lib/request-actions-types";
 import type {
   FieldDefinition,
@@ -44,6 +45,9 @@ interface RequestFormProps {
   canSubmit: boolean;
   /** Current user's id; used as the storage path prefix. */
   uploaderId: string;
+  /** Signed URLs (keyed by storage path) for any existing image attachments,
+   * so the form can show a preview of what's already saved. */
+  signedUrls?: Record<string, string>;
 }
 
 type FormValue = string | boolean | string[];
@@ -96,6 +100,7 @@ export function RequestForm({
   values,
   canSubmit,
   uploaderId,
+  signedUrls,
 }: RequestFormProps) {
   const router = useRouter();
   const [title, setTitle] = React.useState(request.title ?? "");
@@ -386,12 +391,24 @@ export function RequestForm({
                         </Label>
                       </div>
                     )}
-                    {(t === "file" || t === "image") && (
+                    {t === "image" && (
+                      <ScreenshotInput
+                        id={inputId}
+                        onFile={(file) => onFileChange(f, t, file)}
+                        uploading={uploadingKey === k}
+                        previewUrl={
+                          filePaths[k]
+                            ? signedUrls?.[filePaths[k] as string] ?? null
+                            : null
+                        }
+                        currentFilename={filePaths[k]?.split("/").pop() ?? null}
+                      />
+                    )}
+                    {t === "file" && (
                       <div className="space-y-1.5">
                         <input
                           id={inputId}
                           type="file"
-                          accept={t === "image" ? "image/*" : undefined}
                           onChange={(e) => {
                             const file = e.target.files?.[0] ?? null;
                             void onFileChange(f, t, file);

@@ -57,6 +57,21 @@ export default async function EditRequestPage({ params }: EditPageProps) {
     .eq("request_id", id)
     .returns<FieldValue[]>();
 
+  // Sign URLs for any image values so the form can show a live preview of
+  // what's already attached, not just the filename.
+  const signedUrls: Record<string, string> = {};
+  const imagePaths = (values ?? [])
+    .filter((v) => v.field_type === "image" && v.file_path)
+    .map((v) => v.file_path as string);
+  if (imagePaths.length > 0) {
+    const { data: signed } = await supabase.storage
+      .from("request-attachments")
+      .createSignedUrls(imagePaths, 3600);
+    for (const s of signed ?? []) {
+      if (s.path && s.signedUrl) signedUrls[s.path] = s.signedUrl;
+    }
+  }
+
   const canSubmit = isAuthor && isDraft;
 
   return (
@@ -93,6 +108,7 @@ export default async function EditRequestPage({ params }: EditPageProps) {
             values={values ?? []}
             canSubmit={canSubmit}
             uploaderId={profile.id}
+            signedUrls={signedUrls}
           />
         </CardContent>
       </Card>
