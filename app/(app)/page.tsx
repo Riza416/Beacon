@@ -149,19 +149,29 @@ async function Dashboard({
     .order("updated_at", { ascending: false })
     .returns<RequestRowJoined[]>();
 
-  // Team dependencies: which other teams each request is tagged on. Used
-  // below to surface a request under the depended-on team's section, not
-  // only under the author's team.
+  // Team dependencies: which other teams each request is tagged on. Two
+  // shapes built from the same rows:
+  //  - dependenciesByTeam: teamId -> requestIds (so a team's dashboard
+  //    section can list every request it's tagged on)
+  //  - tagsByRequest: requestId -> teamIds (so a request row can render
+  //    one badge per dependent team)
   const { data: tagRows } = await supabase
     .from("request_team_tags")
     .select("request_id, team_id")
     .returns<{ request_id: string; team_id: string }[]>();
-  const dependenciesByTeam = new Map<string, Set<string>>(); // teamId -> requestIds
+  const dependenciesByTeam = new Map<string, Set<string>>();
+  const tagsByRequest = new Map<string, string[]>();
   for (const t of tagRows ?? []) {
     const set = dependenciesByTeam.get(t.team_id) ?? new Set<string>();
     set.add(t.request_id);
     dependenciesByTeam.set(t.team_id, set);
+    const arr = tagsByRequest.get(t.request_id) ?? [];
+    arr.push(t.team_id);
+    tagsByRequest.set(t.request_id, arr);
   }
+  const teamNameById = new Map<string, string>(
+    (teams ?? []).map((t) => [t.id, t.name])
+  );
 
   // Hide requests whose status is configured as terminal. They stay in the DB
   // and remain visible on /requests/[id] and /requests/mine — they're just
@@ -398,9 +408,16 @@ async function Dashboard({
                                           ? undefined
                                           : ownerIdx
                                       }
-                                      isDependency={entry.isDependency}
                                       isAdmin={isAdmin}
                                       hideControls={entry.isDependency}
+                                      taggedTeams={(
+                                        tagsByRequest.get(entry.row.id) ?? []
+                                      ).flatMap((tid) => {
+                                        const name = teamNameById.get(tid);
+                                        return name
+                                          ? [{ id: tid, name }]
+                                          : [];
+                                      })}
                                     />
                                   );
                                 })}
@@ -555,7 +572,7 @@ function RequestRowItem({
   compact = false,
   hideControls = false,
   isAdmin,
-  isDependency = false,
+  taggedTeams = [],
 }: {
   row: RequestRowJoined;
   statuses: Status[];
@@ -563,7 +580,8 @@ function RequestRowItem({
   compact?: boolean;
   hideControls?: boolean;
   isAdmin: boolean;
-  isDependency?: boolean;
+  /** Teams tagged on this request as dependencies (excluding the owner). */
+  taggedTeams?: { id: string; name: string }[];
 }) {
   const showControls = isAdmin && !hideControls;
   return (
@@ -595,12 +613,26 @@ function RequestRowItem({
               {r.status.label}
             </Badge>
           )}
-          {r.team && <Badge variant="outline">{r.team.name}</Badge>}
-          {isDependency && (
-            <Badge variant="secondary" title="This team is tagged as a dependency on this request">
-              Dependency
+          {r.team && (
+            <Badge
+              variant="default"
+              title={`Owned by ${r.team.name}`}
+            >
+              {r.team.name}
             </Badge>
           )}
+          {taggedTeams
+            .filter((t) => t.id !== r.team?.id)
+            .map((t) => (
+              <Badge
+                key={`dep-${t.id}`}
+                variant="outline"
+                className="border-primary/50 text-primary/90"
+                title={`${t.name} is tagged as a dependency`}
+              >
+                {t.name}
+              </Badge>
+            ))}
           {r.notion_url && (
             <a
               href={r.notion_url}
