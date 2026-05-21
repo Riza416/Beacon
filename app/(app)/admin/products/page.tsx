@@ -53,15 +53,9 @@ export default async function AdminProductsPage() {
             <div className="flex flex-col items-center gap-3 p-8 text-center sm:p-12">
               <p className="text-base font-medium">No products yet</p>
               <p className="max-w-sm text-sm text-muted-foreground">
-                Add the products your org takes requests for. Requesters will
-                pick one when filling in the form.
+                Add the products your org takes requests for. Use the
+                &ldquo;Add product&rdquo; button above to start.
               </p>
-              <div className="mt-2">
-                <ProductDialog
-                  mode="create"
-                  trigger={<Button>Add product</Button>}
-                />
-              </div>
             </div>
           ) : (
             <Table>

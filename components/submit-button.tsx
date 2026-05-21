@@ -36,7 +36,7 @@ export function SubmitButton({ requestId, canSubmit }: SubmitButtonProps) {
           force,
         });
         if (result.ok) {
-          toast.success("Request submitted");
+          toast.success("Request submitted — you can still edit anytime");
           setSoftModal({ open: false, missing: [] });
           router.refresh();
           return;

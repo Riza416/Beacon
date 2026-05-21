@@ -200,9 +200,12 @@ export function RequestForm({
           { force }
         );
         if (result.ok) {
-          toast.success("Request submitted");
+          toast.success("Request submitted — you can still edit anytime");
           setSoftModal({ open: false, missing: [] });
-          router.push(`/requests/${request.id}`);
+          // Stay on the edit page so the user feels they still own the
+          // request post-submission. The Submit button will disappear on
+          // re-render (canSubmit becomes false for non-draft), but Save
+          // and all field inputs remain usable.
           router.refresh();
           return;
         }

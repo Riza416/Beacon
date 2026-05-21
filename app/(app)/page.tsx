@@ -133,10 +133,28 @@ async function Dashboard({
     baseQuery = baseQuery.eq("author_id", authorFilter);
   }
 
-  const { data: requests } = await baseQuery
+  const { data: rawRequests } = await baseQuery
     .order("team_priority", { ascending: true })
     .order("updated_at", { ascending: false })
     .returns<RequestRowJoined[]>();
+
+  // Hide requests whose status is configured as terminal. They stay in the DB
+  // and remain visible on /requests/[id] and /requests/mine — they're just
+  // dropped from the dashboard's "in flight" view so the team can focus on
+  // active work. Filter applied unless the user explicitly picked a terminal
+  // status via the status filter.
+  const terminalStatusIds = new Set(
+    (statuses ?? []).filter((s) => s.is_terminal).map((s) => s.id)
+  );
+  const filterIsTerminal =
+    statusFilter !== ALL && terminalStatusIds.has(statusFilter);
+  const requests = filterIsTerminal
+    ? rawRequests
+    : (rawRequests ?? []).filter(
+        (r) => !r.status_id || !terminalStatusIds.has(r.status_id)
+      );
+  const hiddenTerminalCount =
+    (rawRequests?.length ?? 0) - (requests?.length ?? 0);
 
   // Status count cards reflect the filtered set.
   const counts = new Map<string, number>();
@@ -258,11 +276,15 @@ async function Dashboard({
               Sorted by priority within each product group.
             </p>
           </div>
-          {hasFilters && (
-            <p className="text-xs text-muted-foreground">
-              Filtered ({requests?.length ?? 0} matching)
-            </p>
-          )}
+          <div className="text-right text-xs text-muted-foreground">
+            {hasFilters && <p>Filtered ({requests?.length ?? 0} matching)</p>}
+            {hiddenTerminalCount > 0 && (
+              <p>
+                {hiddenTerminalCount} terminal-state{" "}
+                {hiddenTerminalCount === 1 ? "request" : "requests"} hidden
+              </p>
+            )}
+          </div>
         </div>
         {orderedKeys.length === 0 ? (
           <EmptyDashboardCard hasFilters={hasFilters} />
