@@ -12,6 +12,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AdminControls } from "@/components/admin-controls";
+import { NotionUrlCard } from "@/components/notion-url-card";
 import { CommentForm } from "@/components/comment-form";
 import { SubmitButton } from "@/components/submit-button";
 import { formatDate } from "@/lib/utils";
@@ -274,12 +275,18 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
         </CardContent>
       </Card>
 
+      {(isAdmin || isAuthor) && (
+        <NotionUrlCard
+          requestId={id}
+          currentNotionUrl={request.notion_url}
+        />
+      )}
+
       {isAdmin && (
         <AdminControls
           requestId={id}
           statuses={statuses}
           currentStatusId={request.status_id}
-          currentNotionUrl={request.notion_url}
         />
       )}
 

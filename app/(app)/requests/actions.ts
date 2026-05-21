@@ -414,7 +414,26 @@ export async function updateNotionUrl(
   requestId: string,
   url: string
 ): Promise<{ ok: true }> {
-  const { supabase } = await adminAction();
+  const { supabase, profile } = await authedAction();
+
+  // Author or admin can set/clear the Notion link. Tightens via a server-side
+  // check rather than RLS since the request row already enforces who can update
+  // the title/summary (author-while-draft or admin); we relax that for this
+  // single column.
+  const { data: req, error: reqErr } = await supabase
+    .from("requests")
+    .select("author_id")
+    .eq("id", requestId)
+    .maybeSingle<{ author_id: string }>();
+  if (reqErr) throw new Error(reqErr.message);
+  if (!req) throw new Error("Request not found");
+
+  const isAdmin = profile.role === "admin";
+  const isAuthor = req.author_id === profile.id;
+  if (!isAdmin && !isAuthor) {
+    throw new Error("Only the author or an admin can edit the Notion link.");
+  }
+
   const trimmed = url.trim();
   if (trimmed.length === 0) {
     const { error } = await supabase
