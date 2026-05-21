@@ -61,6 +61,7 @@ export interface RequestRow {
   team_id: string | null;
   status_id: string | null;
   priority: number;
+  team_priority: number;
   state: RequestState;
   submitted_at: string | null;
   notion_url: string | null;

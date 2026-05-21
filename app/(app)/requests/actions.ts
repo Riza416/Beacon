@@ -422,3 +422,70 @@ export async function reorderMine(
   revalidatePath("/");
   return { ok: true };
 }
+
+export async function reorderTeamPriority(
+  requestId: string,
+  direction: "up" | "down"
+): Promise<{ ok: true }> {
+  const { supabase } = await adminAction();
+
+  const { data: current, error: curErr } = await supabase
+    .from("requests")
+    .select("id, team_id, team_priority")
+    .eq("id", requestId)
+    .maybeSingle<{ id: string; team_id: string | null; team_priority: number }>();
+  if (curErr) throw new Error(curErr.message);
+  if (!current) throw new Error("Request not found");
+
+  // Build the team-scoped list to find the right neighbor.
+  let listQuery = supabase
+    .from("requests")
+    .select("id, team_priority, updated_at")
+    .order("team_priority", { ascending: true })
+    .order("updated_at", { ascending: false });
+
+  listQuery = current.team_id
+    ? listQuery.eq("team_id", current.team_id)
+    : listQuery.is("team_id", null);
+
+  const { data: list, error: listErr } = await listQuery.returns<
+    { id: string; team_priority: number; updated_at: string }[]
+  >();
+  if (listErr) throw new Error(listErr.message);
+  if (!list) return { ok: true };
+
+  const idx = list.findIndex((r) => r.id === requestId);
+  if (idx < 0) return { ok: true };
+  const neighborIdx = direction === "up" ? idx - 1 : idx + 1;
+  if (neighborIdx < 0 || neighborIdx >= list.length) return { ok: true };
+
+  const cur = list[idx];
+  const nei = list[neighborIdx];
+
+  let curNew = nei.team_priority;
+  let neiNew = cur.team_priority;
+  if (cur.team_priority === nei.team_priority) {
+    if (direction === "up") {
+      curNew = nei.team_priority - 1;
+      neiNew = nei.team_priority;
+    } else {
+      curNew = nei.team_priority + 1;
+      neiNew = nei.team_priority;
+    }
+  }
+
+  const { error: e1 } = await supabase
+    .from("requests")
+    .update({ team_priority: curNew })
+    .eq("id", cur.id);
+  if (e1) throw new Error(e1.message);
+
+  const { error: e2 } = await supabase
+    .from("requests")
+    .update({ team_priority: neiNew })
+    .eq("id", nei.id);
+  if (e2) throw new Error(e2.message);
+
+  revalidatePath("/");
+  return { ok: true };
+}
