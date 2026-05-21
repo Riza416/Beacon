@@ -12,16 +12,41 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AdminControls } from "@/components/admin-controls";
+import { NotionUrlCard } from "@/components/notion-url-card";
 import { CommentForm } from "@/components/comment-form";
 import { SubmitButton } from "@/components/submit-button";
+import {
+  TagPicker,
+  type TagPickerProfile,
+  type TagPickerTeam,
+} from "@/components/tag-picker";
+import { markTagsViewed } from "@/app/(app)/requests/actions";
 import { formatDate } from "@/lib/utils";
 import type {
   Comment,
   FieldDefinition,
+  FieldType,
   FieldValue,
   RequestRow,
   Status,
 } from "@/lib/types";
+
+const TYPE_CAPTIONS: Record<FieldType, string> = {
+  short_text: "Short answer",
+  long_text: "Detailed answer",
+  url: "Link",
+  file: "File",
+  image: "Screenshot",
+  select: "Pick one",
+  multi_select: "Pick several",
+  checkbox: "Yes / no",
+};
+
+function allowedTypes(f: FieldDefinition): FieldType[] {
+  return f.field_types && f.field_types.length > 0
+    ? f.field_types
+    : [f.field_type];
+}
 
 export const dynamic = "force-dynamic";
 
@@ -78,6 +103,44 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
   const isAdmin = profile.role === "admin";
   const isAuthor = request.author_id === profile.id;
   const isDraft = request.state === "draft";
+  const canManageTags = isAdmin || isAuthor;
+
+  // Existing tags on this request.
+  const { data: userTagRows } = await supabase
+    .from("request_collaborators")
+    .select("user_id")
+    .eq("request_id", id)
+    .returns<{ user_id: string }[]>();
+  const { data: teamTagRows } = await supabase
+    .from("request_team_tags")
+    .select("team_id")
+    .eq("request_id", id)
+    .returns<{ team_id: string }[]>();
+
+  // All profiles + teams for the picker (every authenticated user can read
+  // both tables — RLS in 0002_rls.sql).
+  const { data: profileRows } = await supabase
+    .from("profiles")
+    .select("id, full_name, email")
+    .order("full_name", { ascending: true, nullsFirst: false })
+    .returns<TagPickerProfile[]>();
+  const { data: teamRows } = await supabase
+    .from("teams")
+    .select("id, name")
+    .order("name", { ascending: true })
+    .returns<TagPickerTeam[]>();
+
+  const taggedUserIds = (userTagRows ?? []).map((r) => r.user_id);
+  const taggedTeamIds = (teamTagRows ?? []).map((r) => r.team_id);
+
+  // Clear the caller's unread state for this request. Best-effort: if the
+  // call fails (e.g. brief RLS hiccup) we still want to render the page, so
+  // swallow the error rather than crash the route.
+  try {
+    await markTagsViewed(id);
+  } catch {
+    // ignore — the next visit will retry.
+  }
 
   // Sign URLs for any file/image fields.
   const signedUrls = new Map<string, string>();
@@ -94,8 +157,14 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
     }
   }
 
-  const valuesByField = new Map<string, FieldValue>();
-  for (const v of values ?? []) valuesByField.set(v.field_definition_id, v);
+  // Group values by field_definition_id; each field may have several values
+  // (one per allowed type).
+  const valuesByField = new Map<string, FieldValue[]>();
+  for (const v of values ?? []) {
+    const list = valuesByField.get(v.field_definition_id);
+    if (list) list.push(v);
+    else valuesByField.set(v.field_definition_id, [v]);
+  }
 
   let statuses: Status[] = [];
   if (isAdmin) {
@@ -193,29 +262,97 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
             </p>
           )}
           {(fields ?? []).map((f) => {
-            const v = valuesByField.get(f.id);
+            const types = allowedTypes(f);
+            const activeSet = new Set(types);
+            const stored = valuesByField.get(f.id) ?? [];
+            const byType = new Map<FieldType, FieldValue>();
+            for (const v of stored) byType.set(v.field_type, v);
+            // Render in the field's configured order, then append any
+            // "legacy" types still in the DB whose checkbox was un-ticked
+            // since the value was collected.
+            const legacyTypes = stored
+              .map((v) => v.field_type)
+              .filter((t) => !activeSet.has(t));
+            const showSubLabels = types.length > 1 || legacyTypes.length > 0;
             return (
               <div key={f.id} className="space-y-1">
                 <div className="text-sm font-medium">{f.label}</div>
-                <FieldValueRenderer
-                  field={f}
-                  value={v}
-                  signedUrls={signedUrls}
-                />
+                <div className="space-y-2">
+                  {types.map((t) => {
+                    const v = byType.get(t);
+                    return (
+                      <div key={t} className="space-y-1">
+                        {showSubLabels && (
+                          <div className="text-xs text-muted-foreground">
+                            {TYPE_CAPTIONS[t]}
+                          </div>
+                        )}
+                        <FieldValueRenderer
+                          field={f}
+                          displayType={t}
+                          value={v}
+                          signedUrls={signedUrls}
+                        />
+                      </div>
+                    );
+                  })}
+                  {legacyTypes.map((t) => {
+                    const v = byType.get(t);
+                    return (
+                      <div key={`legacy-${t}`} className="space-y-1 opacity-70">
+                        <div className="text-xs text-muted-foreground italic">
+                          Legacy (was: {TYPE_CAPTIONS[t]})
+                        </div>
+                        <FieldValueRenderer
+                          field={f}
+                          displayType={t}
+                          value={v}
+                          signedUrls={signedUrls}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             );
           })}
         </CardContent>
       </Card>
 
+      {(isAdmin || isAuthor) && (
+        <NotionUrlCard
+          requestId={id}
+          currentNotionUrl={request.notion_url}
+        />
+      )}
+
       {isAdmin && (
         <AdminControls
           requestId={id}
           statuses={statuses}
           currentStatusId={request.status_id}
-          currentNotionUrl={request.notion_url}
         />
       )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Tagged for feedback</CardTitle>
+          <CardDescription>
+            People and teams asked to weigh in on this request. Tagged users
+            can comment even if they&apos;re not on the author&apos;s team.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <TagPicker
+            requestId={id}
+            profiles={profileRows ?? []}
+            teams={teamRows ?? []}
+            taggedUserIds={taggedUserIds}
+            taggedTeamIds={taggedTeamIds}
+            canMutate={canManageTags}
+          />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -245,23 +382,47 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
 }
 
 function FieldValueRenderer({
-  field,
+  displayType,
   value,
   signedUrls,
 }: {
   field: FieldDefinition;
+  displayType: FieldType;
   value: FieldValue | undefined;
   signedUrls: Map<string, string>;
 }) {
   if (!value) {
     return <p className="text-sm text-muted-foreground">—</p>;
   }
-  switch (field.field_type) {
+  switch (displayType) {
     case "short_text":
     case "select": {
       if (!value.value_text)
         return <p className="text-sm text-muted-foreground">—</p>;
       return <p className="text-sm">{value.value_text}</p>;
+    }
+    case "multi_select": {
+      if (!value.value_text)
+        return <p className="text-sm text-muted-foreground">—</p>;
+      let selected: string[] = [];
+      try {
+        const parsed = JSON.parse(value.value_text);
+        if (Array.isArray(parsed))
+          selected = parsed.filter((x) => typeof x === "string");
+      } catch {
+        // fall through to empty
+      }
+      if (selected.length === 0)
+        return <p className="text-sm text-muted-foreground">—</p>;
+      return (
+        <div className="flex flex-wrap gap-1.5">
+          {selected.map((s) => (
+            <Badge key={s} variant="secondary">
+              {s}
+            </Badge>
+          ))}
+        </div>
+      );
     }
     case "long_text": {
       if (!value.value_text)
@@ -303,7 +464,7 @@ function FieldValueRenderer({
             {filename} (link unavailable)
           </p>
         );
-      if (field.field_type === "image") {
+      if (displayType === "image") {
         return (
           <div className="space-y-2">
             <div className="overflow-hidden rounded-md border inline-block">

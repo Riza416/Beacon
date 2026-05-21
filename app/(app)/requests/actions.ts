@@ -4,8 +4,49 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { authedAction, adminAction } from "@/lib/actions/utils";
-import type { FieldDefinition, FieldValue, RequestRow } from "@/lib/types";
+import type {
+  FieldDefinition,
+  FieldType,
+  FieldValue,
+  RequestRow,
+} from "@/lib/types";
 import type { SubmitResult } from "@/lib/request-actions-types";
+
+const VALID_FIELD_TYPES: FieldType[] = [
+  "short_text",
+  "long_text",
+  "url",
+  "file",
+  "image",
+  "select",
+  "multi_select",
+  "checkbox",
+];
+
+function isFieldType(s: string): s is FieldType {
+  return (VALID_FIELD_TYPES as string[]).includes(s);
+}
+
+function allowedTypes(f: FieldDefinition): FieldType[] {
+  return f.field_types && f.field_types.length > 0
+    ? f.field_types
+    : [f.field_type];
+}
+
+/**
+ * Form state keys are now `${field_id}::${type}`. Returns null if the key is
+ * malformed or the type is unknown.
+ */
+function parseValueKey(
+  key: string
+): { fieldId: string; type: FieldType } | null {
+  const idx = key.indexOf("::");
+  if (idx < 0) return null;
+  const fieldId = key.slice(0, idx);
+  const type = key.slice(idx + 2);
+  if (!fieldId || !isFieldType(type)) return null;
+  return { fieldId, type };
+}
 
 type FormValues = Record<string, string | boolean>;
 
@@ -77,13 +118,43 @@ export async function createDraft(): Promise<void> {
     .eq("is_default", true)
     .maybeSingle<{ id: string }>();
 
+  // Find the next priority slot for this user's list and for the team list
+  // so the new draft appears at the bottom rather than colliding with every
+  // other draft at priority=0.
+  const { data: mineMax } = await supabase
+    .from("requests")
+    .select("priority")
+    .eq("author_id", profile.id)
+    .order("priority", { ascending: false })
+    .limit(1)
+    .maybeSingle<{ priority: number }>();
+  const nextPriority = (mineMax?.priority ?? -1) + 1;
+
+  let nextTeamPriority = 0;
+  if (profile.team_id) {
+    const { data: teamMax } = await supabase
+      .from("requests")
+      .select("team_priority")
+      .eq("team_id", profile.team_id)
+      .order("team_priority", { ascending: false })
+      .limit(1)
+      .maybeSingle<{ team_priority: number }>();
+    nextTeamPriority = (teamMax?.team_priority ?? -1) + 1;
+  }
+
   const { data: inserted, error } = await supabase
     .from("requests")
     .insert({
       title: "Untitled draft",
       author_id: profile.id,
+      // Inherit the author's team so the dashboard groups it under the right
+      // team instead of "Unassigned". Author can have null team_id (e.g. an
+      // admin without a team) — that's allowed; it falls into Unassigned.
+      team_id: profile.team_id,
       state: "draft",
       status_id: defaultStatus?.id ?? null,
+      priority: nextPriority,
+      team_priority: nextTeamPriority,
     })
     .select("id")
     .single<{ id: string }>();
@@ -128,31 +199,53 @@ async function persistFormState(
 
   if (!fields || fields.length === 0) return;
 
-  const rows = fields
-    .map((f) => {
-      const raw = parsed.values[f.id];
-      if (raw === undefined) return null;
-      let value_text: string | null = null;
-      if (f.field_type === "checkbox") {
-        value_text = (raw === true || raw === "true") ? "true" : "false";
-      } else if (typeof raw === "string") {
-        const trimmed = raw.trim();
-        value_text = trimmed.length === 0 ? null : trimmed;
-      }
-      // File / image: ignore here — file_path is updated via setFieldFile.
-      if (f.field_type === "file" || f.field_type === "image") return null;
-      return {
-        request_id: requestId,
-        field_definition_id: f.id,
-        value_text,
-      };
-    })
-    .filter((r): r is NonNullable<typeof r> => r !== null);
+  // Index field defs by id and capture the set of currently-allowed types per
+  // field. Anything submitted for a type not in this set is dropped (the form
+  // shouldn't be sending it anyway).
+  const allowedByField = new Map<string, Set<FieldType>>();
+  for (const f of fields) {
+    allowedByField.set(f.id, new Set(allowedTypes(f)));
+  }
+
+  const rows: {
+    request_id: string;
+    field_definition_id: string;
+    field_type: FieldType;
+    value_text: string | null;
+  }[] = [];
+
+  for (const [key, raw] of Object.entries(parsed.values)) {
+    const parsedKey = parseValueKey(key);
+    if (!parsedKey) continue;
+    const { fieldId, type } = parsedKey;
+    const allowed = allowedByField.get(fieldId);
+    if (!allowed || !allowed.has(type)) continue;
+
+    // File / image: ignore here — file_path is updated via setFieldFile.
+    if (type === "file" || type === "image") continue;
+
+    let value_text: string | null = null;
+    if (type === "checkbox") {
+      value_text = raw === true || raw === "true" ? "true" : "false";
+    } else if (typeof raw === "string") {
+      const trimmed = raw.trim();
+      value_text = trimmed.length === 0 ? null : trimmed;
+    }
+
+    rows.push({
+      request_id: requestId,
+      field_definition_id: fieldId,
+      field_type: type,
+      value_text,
+    });
+  }
 
   if (rows.length > 0) {
     const { error: upErr } = await supabase
       .from("request_field_values")
-      .upsert(rows, { onConflict: "request_id,field_definition_id" });
+      .upsert(rows, {
+        onConflict: "request_id,field_definition_id,field_type",
+      });
     if (upErr) throw new Error(upErr.message);
   }
 }
@@ -205,20 +298,43 @@ export async function submitRequest(
     .returns<FieldValue[]>();
   if (fvErr) throw new Error(fvErr.message);
 
-  const byField = new Map<string, FieldValue>();
-  for (const v of values ?? []) byField.set(v.field_definition_id, v);
+  // Index by (field_id, type) — one row per type the admin enabled.
+  const byFieldType = new Map<string, FieldValue>();
+  for (const v of values ?? []) {
+    byFieldType.set(`${v.field_definition_id}::${v.field_type}`, v);
+  }
 
-  function isFilled(f: FieldDefinition): boolean {
-    const v = byField.get(f.id);
+  function isFilledForType(type: FieldType, v: FieldValue | undefined): boolean {
     if (!v) return false;
-    if (f.field_type === "file" || f.field_type === "image") {
+    if (type === "file" || type === "image") {
       return Boolean(v.file_path && v.file_path.length > 0);
     }
-    if (f.field_type === "checkbox") {
+    if (type === "checkbox") {
       // Checkbox "required" means it must be checked.
       return v.value_text === "true";
     }
+    if (type === "multi_select") {
+      // Multi-select is filled if at least one option is selected.
+      if (!v.value_text) return false;
+      try {
+        const arr = JSON.parse(v.value_text);
+        return Array.isArray(arr) && arr.length > 0;
+      } catch {
+        return false;
+      }
+    }
     return Boolean(v.value_text && v.value_text.trim().length > 0);
+  }
+
+  function isFilled(f: FieldDefinition): boolean {
+    // A field with multiple allowed types counts as filled as soon as ANY
+    // of its sub-inputs has a value. The user picks whichever way they want
+    // to provide the answer (screenshot OR file OR url, etc.).
+    for (const type of allowedTypes(f)) {
+      const v = byFieldType.get(`${f.id}::${type}`);
+      if (isFilledForType(type, v)) return true;
+    }
+    return false;
   }
 
   const hardMissing = (fields ?? [])
@@ -253,8 +369,12 @@ export async function submitRequest(
 export async function setFieldFile(
   requestId: string,
   fieldId: string,
+  fieldType: FieldType,
   filePath: string | null
 ): Promise<{ ok: true }> {
+  if (!isFieldType(fieldType)) {
+    throw new Error("Invalid field type");
+  }
   const ctx = await authedAction();
   await assertEditable(requestId, ctx);
   const { supabase } = ctx;
@@ -265,9 +385,10 @@ export async function setFieldFile(
       {
         request_id: requestId,
         field_definition_id: fieldId,
+        field_type: fieldType,
         file_path: filePath,
       },
-      { onConflict: "request_id,field_definition_id" }
+      { onConflict: "request_id,field_definition_id,field_type" }
     );
   if (error) throw new Error(error.message);
 
@@ -323,7 +444,26 @@ export async function updateNotionUrl(
   requestId: string,
   url: string
 ): Promise<{ ok: true }> {
-  const { supabase } = await adminAction();
+  const { supabase, profile } = await authedAction();
+
+  // Author or admin can set/clear the Notion link. Tightens via a server-side
+  // check rather than RLS since the request row already enforces who can update
+  // the title/summary (author-while-draft or admin); we relax that for this
+  // single column.
+  const { data: req, error: reqErr } = await supabase
+    .from("requests")
+    .select("author_id")
+    .eq("id", requestId)
+    .maybeSingle<{ author_id: string }>();
+  if (reqErr) throw new Error(reqErr.message);
+  if (!req) throw new Error("Request not found");
+
+  const isAdmin = profile.role === "admin";
+  const isAuthor = req.author_id === profile.id;
+  if (!isAdmin && !isAuthor) {
+    throw new Error("Only the author or an admin can edit the Notion link.");
+  }
+
   const trimmed = url.trim();
   if (trimmed.length === 0) {
     const { error } = await supabase
@@ -409,6 +549,249 @@ export async function reorderMine(
   if (e2) throw new Error(e2.message);
 
   revalidatePath("/requests/mine");
+  revalidatePath("/");
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Tagging: who is asked for feedback on a request.
+// User tags live in request_collaborators, team tags in request_team_tags.
+// Only the request author or an admin may mutate; everyone authenticated can
+// read. View state is tracked in request_collaborators.viewed_at (per-user)
+// and request_team_tag_views (per-(user, team-tag) pair).
+// ---------------------------------------------------------------------------
+
+const uuidSchema = z.string().uuid();
+
+async function assertCanTag(
+  requestId: string,
+  ctx: Awaited<ReturnType<typeof authedAction>>
+): Promise<void> {
+  const { supabase, profile } = ctx;
+  if (profile.role === "admin") return;
+  const { data, error } = await supabase
+    .from("requests")
+    .select("author_id")
+    .eq("id", requestId)
+    .maybeSingle<{ author_id: string }>();
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error("Request not found");
+  if (data.author_id !== profile.id) {
+    throw new Error("Only the author or an admin can change tags.");
+  }
+}
+
+function revalidateTagPaths(requestId: string) {
+  revalidatePath(`/requests/${requestId}`);
+  revalidatePath("/");
+  revalidatePath("/requests/tagged-for-me");
+}
+
+export async function addUserTag(
+  requestId: string,
+  userId: string
+): Promise<{ ok: true }> {
+  const reqId = uuidSchema.parse(requestId);
+  const uId = uuidSchema.parse(userId);
+  const ctx = await authedAction();
+  await assertCanTag(reqId, ctx);
+
+  // upsert-style insert: if the tag already exists we silently succeed so the
+  // UI is idempotent.
+  const { error } = await ctx.supabase
+    .from("request_collaborators")
+    .upsert(
+      { request_id: reqId, user_id: uId },
+      { onConflict: "request_id,user_id", ignoreDuplicates: true }
+    );
+  if (error) throw new Error(error.message);
+
+  revalidateTagPaths(reqId);
+  return { ok: true };
+}
+
+export async function removeUserTag(
+  requestId: string,
+  userId: string
+): Promise<{ ok: true }> {
+  const reqId = uuidSchema.parse(requestId);
+  const uId = uuidSchema.parse(userId);
+  const ctx = await authedAction();
+  await assertCanTag(reqId, ctx);
+
+  const { error } = await ctx.supabase
+    .from("request_collaborators")
+    .delete()
+    .eq("request_id", reqId)
+    .eq("user_id", uId);
+  if (error) throw new Error(error.message);
+
+  revalidateTagPaths(reqId);
+  return { ok: true };
+}
+
+export async function addTeamTag(
+  requestId: string,
+  teamId: string
+): Promise<{ ok: true }> {
+  const reqId = uuidSchema.parse(requestId);
+  const tId = uuidSchema.parse(teamId);
+  const ctx = await authedAction();
+  await assertCanTag(reqId, ctx);
+
+  const { error } = await ctx.supabase
+    .from("request_team_tags")
+    .upsert(
+      { request_id: reqId, team_id: tId },
+      { onConflict: "request_id,team_id", ignoreDuplicates: true }
+    );
+  if (error) throw new Error(error.message);
+
+  revalidateTagPaths(reqId);
+  return { ok: true };
+}
+
+export async function removeTeamTag(
+  requestId: string,
+  teamId: string
+): Promise<{ ok: true }> {
+  const reqId = uuidSchema.parse(requestId);
+  const tId = uuidSchema.parse(teamId);
+  const ctx = await authedAction();
+  await assertCanTag(reqId, ctx);
+
+  const { error } = await ctx.supabase
+    .from("request_team_tags")
+    .delete()
+    .eq("request_id", reqId)
+    .eq("team_id", tId);
+  if (error) throw new Error(error.message);
+
+  revalidateTagPaths(reqId);
+  return { ok: true };
+}
+
+/**
+ * Clear the caller's unread state for any tags pointing at this request.
+ *
+ * - For user tags: stamp viewed_at on the row where user_id = me.
+ * - For team tags on my team: insert a request_team_tag_views row (if missing).
+ *
+ * Safe to call on every visit — both paths are no-ops when there's nothing to
+ * mark.
+ */
+export async function markTagsViewed(
+  requestId: string
+): Promise<{ ok: true }> {
+  const reqId = uuidSchema.parse(requestId);
+  const { supabase, profile } = await authedAction();
+
+  // 1) user tag: stamp viewed_at if not already set.
+  const { error: ucErr } = await supabase
+    .from("request_collaborators")
+    .update({ viewed_at: new Date().toISOString() })
+    .eq("request_id", reqId)
+    .eq("user_id", profile.id)
+    .is("viewed_at", null);
+  if (ucErr) throw new Error(ucErr.message);
+
+  // 2) team tag: insert a view row for each tag on my team that I haven't
+  // viewed yet. We resolve the matching team tags first, then upsert with
+  // ignoreDuplicates so existing views are kept untouched.
+  if (profile.team_id) {
+    const { data: teamTags, error: ttErr } = await supabase
+      .from("request_team_tags")
+      .select("team_id")
+      .eq("request_id", reqId)
+      .eq("team_id", profile.team_id)
+      .returns<{ team_id: string }[]>();
+    if (ttErr) throw new Error(ttErr.message);
+
+    if (teamTags && teamTags.length > 0) {
+      const rows = teamTags.map((t) => ({
+        request_id: reqId,
+        team_id: t.team_id,
+        user_id: profile.id,
+      }));
+      const { error: vErr } = await supabase
+        .from("request_team_tag_views")
+        .upsert(rows, {
+          onConflict: "request_id,team_id,user_id",
+          ignoreDuplicates: true,
+        });
+      if (vErr) throw new Error(vErr.message);
+    }
+  }
+
+  // Don't revalidate /requests/[id] — we're already rendering it.
+  revalidatePath("/");
+  revalidatePath("/requests/tagged-for-me");
+  return { ok: true };
+}
+
+export async function reorderTeamPriority(
+  requestId: string,
+  direction: "up" | "down"
+): Promise<{ ok: true }> {
+  const { supabase } = await adminAction();
+
+  const { data: current, error: curErr } = await supabase
+    .from("requests")
+    .select("id, team_id, team_priority")
+    .eq("id", requestId)
+    .maybeSingle<{ id: string; team_id: string | null; team_priority: number }>();
+  if (curErr) throw new Error(curErr.message);
+  if (!current) throw new Error("Request not found");
+
+  // Build the team-scoped list to find the right neighbor.
+  let listQuery = supabase
+    .from("requests")
+    .select("id, team_priority, updated_at")
+    .order("team_priority", { ascending: true })
+    .order("updated_at", { ascending: false });
+
+  listQuery = current.team_id
+    ? listQuery.eq("team_id", current.team_id)
+    : listQuery.is("team_id", null);
+
+  const { data: list, error: listErr } = await listQuery.returns<
+    { id: string; team_priority: number; updated_at: string }[]
+  >();
+  if (listErr) throw new Error(listErr.message);
+  if (!list) return { ok: true };
+
+  const idx = list.findIndex((r) => r.id === requestId);
+  if (idx < 0) return { ok: true };
+  const neighborIdx = direction === "up" ? idx - 1 : idx + 1;
+  if (neighborIdx < 0 || neighborIdx >= list.length) return { ok: true };
+
+  const cur = list[idx];
+  const nei = list[neighborIdx];
+
+  let curNew = nei.team_priority;
+  let neiNew = cur.team_priority;
+  if (cur.team_priority === nei.team_priority) {
+    if (direction === "up") {
+      curNew = nei.team_priority - 1;
+      neiNew = nei.team_priority;
+    } else {
+      curNew = nei.team_priority + 1;
+      neiNew = nei.team_priority;
+    }
+  }
+
+  const { error: e1 } = await supabase
+    .from("requests")
+    .update({ team_priority: curNew })
+    .eq("id", cur.id);
+  if (e1) throw new Error(e1.message);
+
+  const { error: e2 } = await supabase
+    .from("requests")
+    .update({ team_priority: neiNew })
+    .eq("id", nei.id);
+  if (e2) throw new Error(e2.message);
+
   revalidatePath("/");
   return { ok: true };
 }

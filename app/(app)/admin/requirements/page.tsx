@@ -21,6 +21,7 @@ const FIELD_TYPE_LABELS: Record<string, string> = {
   file: "File",
   image: "Image",
   select: "Select",
+  multi_select: "Multi-select",
   checkbox: "Checkbox",
 };
 
@@ -56,8 +57,15 @@ export default async function AdminRequirementsPage() {
       <Card>
         <CardContent className="p-0">
           {!fields || fields.length === 0 ? (
-            <div className="p-8 text-center text-sm text-muted-foreground">
-              No fields yet. Add one to start collecting structured data.
+            <div className="flex flex-col items-center gap-3 p-8 text-center sm:p-12">
+              <p className="text-base font-medium">No fields configured</p>
+              <p className="max-w-sm text-sm text-muted-foreground">
+                Add a field to start collecting structured information on
+                request forms.
+              </p>
+              <div className="mt-2">
+                <CreateFieldDialog />
+              </div>
             </div>
           ) : (
             <Table>
@@ -83,7 +91,16 @@ export default async function AdminRequirementsPage() {
                     </TableCell>
                     <TableCell className="font-medium">{field.label}</TableCell>
                     <TableCell className="text-muted-foreground">
-                      {FIELD_TYPE_LABELS[field.field_type] ?? field.field_type}
+                      <div className="flex flex-wrap gap-1">
+                        {(field.field_types && field.field_types.length > 0
+                          ? field.field_types
+                          : [field.field_type]
+                        ).map((t) => (
+                          <Badge key={t} variant="outline" className="text-xs">
+                            {FIELD_TYPE_LABELS[t] ?? t}
+                          </Badge>
+                        ))}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <Badge variant={requiredLevelVariant(field.required_level)}>

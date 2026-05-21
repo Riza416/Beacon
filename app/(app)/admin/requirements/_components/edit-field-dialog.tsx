@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -22,8 +23,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { FieldDefinition, RequiredLevel } from "@/lib/types";
+import type { FieldDefinition, FieldType, RequiredLevel } from "@/lib/types";
 import { updateField } from "../actions";
+
+const FIELD_TYPES: { value: FieldType; label: string }[] = [
+  { value: "short_text", label: "Short text" },
+  { value: "long_text", label: "Long text" },
+  { value: "url", label: "URL" },
+  { value: "file", label: "File" },
+  { value: "image", label: "Image" },
+  { value: "select", label: "Select" },
+  { value: "multi_select", label: "Multi-select" },
+  { value: "checkbox", label: "Checkbox" },
+];
+
+const TYPES_WITH_OPTIONS: FieldType[] = ["select", "multi_select"];
 
 const REQUIRED_LEVELS: { value: RequiredLevel; label: string }[] = [
   { value: "hard", label: "Hard (must fill to submit)" },
@@ -35,16 +49,47 @@ interface EditFieldDialogProps {
   field: FieldDefinition;
 }
 
+function initialTypes(field: FieldDefinition): Set<FieldType> {
+  const list =
+    field.field_types && field.field_types.length > 0
+      ? field.field_types
+      : [field.field_type];
+  return new Set<FieldType>(list);
+}
+
 export function EditFieldDialog({ field }: EditFieldDialogProps) {
   const [open, setOpen] = useState(false);
   const [requiredLevel, setRequiredLevel] = useState<RequiredLevel>(
     field.required_level
   );
+  const [selectedTypes, setSelectedTypes] = useState<Set<FieldType>>(() =>
+    initialTypes(field)
+  );
   const [isPending, startTransition] = useTransition();
 
+  const showOptions = TYPES_WITH_OPTIONS.some((t) => selectedTypes.has(t));
+
+  function toggleType(t: FieldType, on: boolean) {
+    setSelectedTypes((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(t);
+      else next.delete(t);
+      return next;
+    });
+  }
+
   function onSubmit(formData: FormData) {
+    if (selectedTypes.size === 0) {
+      toast.error("Pick at least one type");
+      return;
+    }
     formData.set("required_level", requiredLevel);
-    formData.set("field_type", field.field_type);
+    formData.delete("field_types");
+    for (const t of selectedTypes) formData.append("field_types", t);
+    // NOTE: removing a type from the set leaves any previously-stored
+    // request_field_values rows for that type orphaned in the DB on purpose —
+    // the form just stops rendering them, but the detail page still surfaces
+    // them as "legacy" so nothing disappears silently.
     startTransition(async () => {
       try {
         await updateField(formData);
@@ -68,7 +113,9 @@ export function EditFieldDialog({ field }: EditFieldDialogProps) {
         <DialogHeader>
           <DialogTitle>Edit field</DialogTitle>
           <DialogDescription>
-            Type cannot be changed after creation.
+            Add or remove allowed input types. Removing a type does not delete
+            previously-collected answers — the request form just stops asking
+            for it.
           </DialogDescription>
         </DialogHeader>
         <form action={onSubmit} className="space-y-4">
@@ -83,8 +130,27 @@ export function EditFieldDialog({ field }: EditFieldDialogProps) {
             />
           </div>
           <div className="space-y-2">
-            <Label>Type</Label>
-            <Input value={field.field_type} disabled readOnly />
+            <Label>Types</Label>
+            <div className="grid grid-cols-2 gap-2 rounded-md border p-3">
+              {FIELD_TYPES.map((t) => {
+                const id = `edit-${field.id}-type-${t.value}`;
+                const checked = selectedTypes.has(t.value);
+                return (
+                  <div key={t.value} className="flex items-center gap-2">
+                    <Checkbox
+                      id={id}
+                      checked={checked}
+                      onCheckedChange={(next) =>
+                        toggleType(t.value, next === true)
+                      }
+                    />
+                    <Label htmlFor={id} className="text-sm font-normal">
+                      {t.label}
+                    </Label>
+                  </div>
+                );
+              })}
+            </div>
           </div>
           <div className="space-y-2">
             <Label>Required level</Label>
@@ -113,7 +179,7 @@ export function EditFieldDialog({ field }: EditFieldDialogProps) {
               defaultValue={field.help_text ?? ""}
             />
           </div>
-          {field.field_type === "select" && (
+          {showOptions && (
             <div className="space-y-2">
               <Label htmlFor={`options-${field.id}`}>Options (one per line)</Label>
               <Textarea

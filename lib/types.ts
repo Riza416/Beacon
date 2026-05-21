@@ -7,6 +7,7 @@ export type FieldType =
   | "file"
   | "image"
   | "select"
+  | "multi_select"
   | "checkbox";
 export type RequiredLevel = "hard" | "soft" | "optional";
 
@@ -42,7 +43,15 @@ export interface Status {
 export interface FieldDefinition {
   id: string;
   label: string;
+  /**
+   * Legacy single-type column, kept for back-compat. Equals `field_types[0]`.
+   */
   field_type: FieldType;
+  /**
+   * Set of allowed input types. The request form renders one sub-input per
+   * entry; values are stored per (request, field_definition, field_type).
+   */
+  field_types: FieldType[];
   required_level: RequiredLevel;
   help_text: string | null;
   options: string[] | null;
@@ -60,6 +69,7 @@ export interface RequestRow {
   team_id: string | null;
   status_id: string | null;
   priority: number;
+  team_priority: number;
   state: RequestState;
   submitted_at: string | null;
   notion_url: string | null;
@@ -71,6 +81,12 @@ export interface FieldValue {
   id: string;
   request_id: string;
   field_definition_id: string;
+  /**
+   * Which of the field definition's allowed types this row corresponds to.
+   * A single (request, field_definition) pair can have multiple rows — one
+   * per type the admin enabled on the field.
+   */
+  field_type: FieldType;
   value_text: string | null;
   file_path: string | null;
   created_at: string;

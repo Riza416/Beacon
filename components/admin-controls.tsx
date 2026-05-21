@@ -30,7 +30,6 @@ import {
 } from "@/components/ui/dialog";
 import {
   deleteRequest,
-  updateNotionUrl,
   updateRequestStatus,
 } from "@/app/(app)/requests/actions";
 import type { Status } from "@/lib/types";
@@ -39,20 +38,19 @@ interface AdminControlsProps {
   requestId: string;
   statuses: Status[];
   currentStatusId: string | null;
-  currentNotionUrl: string | null;
 }
 
 export function AdminControls({
   requestId,
   statuses,
   currentStatusId,
-  currentNotionUrl,
 }: AdminControlsProps) {
   const router = useRouter();
   const [statusId, setStatusId] = React.useState<string>(currentStatusId ?? "");
-  const [notion, setNotion] = React.useState<string>(currentNotionUrl ?? "");
   const [confirmOpen, setConfirmOpen] = React.useState(false);
+  const [confirmText, setConfirmText] = React.useState("");
   const [pending, startTransition] = React.useTransition();
+  const confirmReady = confirmText.trim().toUpperCase() === "DELETE";
 
   function onChangeStatus(next: string) {
     if (next === statusId) return;
@@ -67,20 +65,6 @@ export function AdminControls({
         setStatusId(prev);
         const message =
           err instanceof Error ? err.message : "Could not update status";
-        toast.error(message);
-      }
-    });
-  }
-
-  function onSaveNotion() {
-    startTransition(async () => {
-      try {
-        await updateNotionUrl(requestId, notion);
-        toast.success("Notion URL saved");
-        router.refresh();
-      } catch (err) {
-        const message =
-          err instanceof Error ? err.message : "Could not save URL";
         toast.error(message);
       }
     });
@@ -106,7 +90,7 @@ export function AdminControls({
       <CardHeader>
         <CardTitle>Admin controls</CardTitle>
         <CardDescription>
-          Triage status, paste the Notion ticket, or remove this request.
+          Triage status or remove this request.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -130,21 +114,6 @@ export function AdminControls({
           </Select>
         </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="notion">Notion URL</Label>
-          <div className="flex gap-2">
-            <Input
-              id="notion"
-              value={notion}
-              onChange={(e) => setNotion(e.target.value)}
-              placeholder="https://www.notion.so/..."
-            />
-            <Button onClick={onSaveNotion} disabled={pending}>
-              Save
-            </Button>
-          </div>
-        </div>
-
         <div className="pt-2">
           <Button
             variant="destructive"
@@ -156,15 +125,35 @@ export function AdminControls({
         </div>
       </CardContent>
 
-      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+      <Dialog
+        open={confirmOpen}
+        onOpenChange={(open) => {
+          setConfirmOpen(open);
+          if (!open) setConfirmText("");
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete this request?</DialogTitle>
             <DialogDescription>
               This cannot be undone. The request, its field values, and any
-              comments will be removed.
+              comments will be removed. Type <strong>DELETE</strong> to
+              confirm.
             </DialogDescription>
           </DialogHeader>
+          <div className="space-y-2 pt-2">
+            <Label htmlFor="confirm-delete" className="sr-only">
+              Type DELETE
+            </Label>
+            <Input
+              id="confirm-delete"
+              autoFocus
+              value={confirmText}
+              onChange={(e) => setConfirmText(e.target.value)}
+              placeholder="DELETE"
+              autoComplete="off"
+            />
+          </div>
           <DialogFooter className="gap-2">
             <Button
               variant="outline"
@@ -176,7 +165,7 @@ export function AdminControls({
             <Button
               variant="destructive"
               onClick={onDelete}
-              disabled={pending}
+              disabled={pending || !confirmReady}
             >
               {pending ? "Deleting…" : "Delete"}
             </Button>
