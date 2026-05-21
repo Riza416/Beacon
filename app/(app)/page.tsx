@@ -149,6 +149,20 @@ async function Dashboard({
     .order("updated_at", { ascending: false })
     .returns<RequestRowJoined[]>();
 
+  // Team dependencies: which other teams each request is tagged on. Used
+  // below to surface a request under the depended-on team's section, not
+  // only under the author's team.
+  const { data: tagRows } = await supabase
+    .from("request_team_tags")
+    .select("request_id, team_id")
+    .returns<{ request_id: string; team_id: string }[]>();
+  const dependenciesByTeam = new Map<string, Set<string>>(); // teamId -> requestIds
+  for (const t of tagRows ?? []) {
+    const set = dependenciesByTeam.get(t.team_id) ?? new Set<string>();
+    set.add(t.request_id);
+    dependenciesByTeam.set(t.team_id, set);
+  }
+
   // Hide requests whose status is configured as terminal. They stay in the DB
   // and remain visible on /requests/[id] and /requests/mine — they're just
   // dropped from the dashboard's "in flight" view so the team can focus on
@@ -318,9 +332,32 @@ async function Dashboard({
                 arr.push(r);
                 byTeamWithin.set(tk, arr);
               }
+
+              // Build per-team "dependency" lists: requests where this team
+              // is tagged (request_team_tags) but isn't the author's team.
+              // Only requests in the current product group are eligible.
+              const productRequestIds = new Set(rows.map((r) => r.id));
+              const dependenciesWithin = new Map<string, RequestRowJoined[]>();
+              for (const r of rows) {
+                if (!productRequestIds.has(r.id)) continue;
+              }
+              for (const [teamId, depIds] of dependenciesByTeam.entries()) {
+                const matches = rows.filter(
+                  (r) => depIds.has(r.id) && r.team_id !== teamId
+                );
+                if (matches.length > 0) {
+                  dependenciesWithin.set(teamId, matches);
+                }
+              }
+
               const teamKeys: (string | null)[] = [];
               for (const t of teams ?? []) {
-                if (byTeamWithin.has(t.id)) teamKeys.push(t.id);
+                if (
+                  byTeamWithin.has(t.id) ||
+                  dependenciesWithin.has(t.id)
+                ) {
+                  teamKeys.push(t.id);
+                }
               }
               if (byTeamWithin.has(null)) teamKeys.push(null);
               const teamName = (id: string | null) =>
@@ -363,6 +400,33 @@ async function Dashboard({
                               </ul>
                             </CardContent>
                           </Card>
+                          {teamId &&
+                            (dependenciesWithin.get(teamId) ?? []).length >
+                              0 && (
+                              <div className="space-y-1">
+                                <p className="px-1 text-[10px] uppercase tracking-wide text-muted-foreground/70">
+                                  Dependencies on this team
+                                </p>
+                                <Card className="border-dashed">
+                                  <CardContent className="p-0">
+                                    <ul className="divide-y">
+                                      {(
+                                        dependenciesWithin.get(teamId) ?? []
+                                      ).map((r) => (
+                                        <RequestRowItem
+                                          key={`dep-${r.id}`}
+                                          row={r}
+                                          statuses={statuses ?? []}
+                                          compact
+                                          hideControls
+                                          isAdmin={isAdmin}
+                                        />
+                                      ))}
+                                    </ul>
+                                  </CardContent>
+                                </Card>
+                              </div>
+                            )}
                         </div>
                       );
                     })}
