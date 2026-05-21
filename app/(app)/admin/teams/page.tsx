@@ -20,7 +20,9 @@ export default async function AdminTeamsPage() {
   const supabase = await createClient();
   const { data: teams } = await supabase
     .from("teams")
-    .select("*, members:profiles(count)")
+    // Explicit FK path required: request_team_tag_views introduced a second
+    // teams⇄profiles relationship that PostgREST can't pick between.
+    .select("*, members:profiles!profiles_team_id_fkey(count)")
     .order("name", { ascending: true })
     .returns<TeamWithMembers[]>();
 
