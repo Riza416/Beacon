@@ -224,7 +224,10 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
               <Button asChild variant="outline">
                 <Link href={`/requests/${id}/edit`}>Continue editing</Link>
               </Button>
-              <SubmitButton requestId={id} />
+              <SubmitButton
+                requestId={id}
+                canSubmit={Boolean(profile.team_id)}
+              />
             </>
           )}
           {!isDraft && (isAuthor || isAdmin) && (

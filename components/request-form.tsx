@@ -43,6 +43,8 @@ interface RequestFormProps {
   fields: FieldDefinition[];
   values: FieldValue[];
   canSubmit: boolean;
+  /** Whether the current user is on a team. Submission is blocked when false. */
+  hasTeam: boolean;
   /** Current user's id; used as the storage path prefix. */
   uploaderId: string;
   /** Signed URLs (keyed by storage path) for any existing image attachments,
@@ -99,6 +101,7 @@ export function RequestForm({
   fields,
   values,
   canSubmit,
+  hasTeam,
   uploaderId,
   signedUrls,
 }: RequestFormProps) {
@@ -444,9 +447,23 @@ export function RequestForm({
           {isPending ? "Saving…" : "Save draft"}
         </Button>
         {canSubmit && (
-          <Button onClick={() => doSubmit(false)} disabled={isPending}>
+          <Button
+            onClick={() => doSubmit(false)}
+            disabled={isPending || !hasTeam}
+            title={
+              hasTeam
+                ? undefined
+                : "You need to be on a team before submitting"
+            }
+          >
             {isPending ? "Submitting…" : "Submit to product team"}
           </Button>
+        )}
+        {canSubmit && !hasTeam && (
+          <p className="basis-full text-xs text-muted-foreground">
+            You can save drafts, but submission requires you to be on a team.
+            Ask an admin to add you.
+          </p>
         )}
       </div>
 

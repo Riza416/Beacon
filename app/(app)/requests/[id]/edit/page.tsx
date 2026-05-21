@@ -107,6 +107,7 @@ export default async function EditRequestPage({ params }: EditPageProps) {
             fields={fields ?? []}
             values={values ?? []}
             canSubmit={canSubmit}
+            hasTeam={Boolean(profile.team_id)}
             uploaderId={profile.id}
             signedUrls={signedUrls}
           />

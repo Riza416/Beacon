@@ -276,6 +276,16 @@ export async function submitRequest(
     return { ok: true };
   }
 
+  // Hard gate: you cannot submit a request unless you belong to a team.
+  // Admins are also expected to be on a team (so the request shows up under
+  // a team on the dashboard rather than Unassigned). If they're not, point
+  // them at /admin/teams.
+  if (!ctx.profile.team_id) {
+    throw new Error(
+      "You need to be on a team before submitting. Ask an admin to add you (Admins: assign yourself under /admin/teams)."
+    );
+  }
+
   // Save first so we validate against the freshest state (when called from
   // the edit form). When the user submits from the detail page they have no
   // pending form state, so skip the save and validate what's persisted.
