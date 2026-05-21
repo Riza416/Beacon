@@ -61,6 +61,21 @@ export default async function EditRequestPage({ params }: EditPageProps) {
     .order("name")
     .returns<{ id: string; name: string }[]>();
 
+  // Teams + this request's existing team tags. Authors flag dependent teams
+  // while drafting; the picker below the deadline field reads from these.
+  const { data: allTeams } = await supabase
+    .from("teams")
+    .select("id, name")
+    .order("name", { ascending: true })
+    .returns<{ id: string; name: string }[]>();
+
+  const { data: teamTagRows } = await supabase
+    .from("request_team_tags")
+    .select("team_id")
+    .eq("request_id", id)
+    .returns<{ team_id: string }[]>();
+  const taggedTeamIds = (teamTagRows ?? []).map((r) => r.team_id);
+
   // Sign URLs for any image values so the form can show a live preview of
   // what's already attached, not just the filename.
   const signedUrls: Record<string, string> = {};
@@ -117,6 +132,9 @@ export default async function EditRequestPage({ params }: EditPageProps) {
             uploaderId={profile.id}
             signedUrls={signedUrls}
             products={products ?? []}
+            allTeams={allTeams ?? []}
+            initialTaggedTeamIds={taggedTeamIds}
+            authorTeamId={request.team_id}
           />
         </CardContent>
       </Card>

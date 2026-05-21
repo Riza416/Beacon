@@ -25,10 +25,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  addTeamTag,
+  removeTeamTag,
   saveDraft,
   submitRequest,
   setFieldFile,
 } from "@/app/(app)/requests/actions";
+import { X } from "lucide-react";
 import { ScreenshotInput } from "@/components/screenshot-input";
 import type { SubmitResult } from "@/lib/request-actions-types";
 import type {
@@ -52,6 +55,14 @@ interface RequestFormProps {
   signedUrls?: Record<string, string>;
   /** Admin-configured catalog the author picks one of. */
   products: { id: string; name: string }[];
+  /** All teams in the workspace, used by the dependent-teams picker below
+   * the deadline field. */
+  allTeams: { id: string; name: string }[];
+  /** Team ids already tagged as dependencies for this request. */
+  initialTaggedTeamIds: string[];
+  /** The author's own team id, if any. Excluded from the "Add team" dropdown
+   * because the author's team isn't a dependency. */
+  authorTeamId: string | null;
 }
 
 type FormValue = string | boolean | string[];
@@ -107,6 +118,9 @@ export function RequestForm({
   uploaderId,
   signedUrls,
   products,
+  allTeams,
+  initialTaggedTeamIds,
+  authorTeamId,
 }: RequestFormProps) {
   const router = useRouter();
   const [title, setTitle] = React.useState(request.title ?? "");
@@ -162,6 +176,86 @@ export function RequestForm({
     open: boolean;
     missing: { id: string; label: string }[];
   }>({ open: false, missing: [] });
+
+  // Dependent teams: kept as a Set for O(1) membership checks when rendering
+  // the chip list and filtering the "Add team" dropdown. Mutates via the
+  // existing addTeamTag / removeTeamTag server actions — not through saveDraft.
+  const [taggedTeamIds, setTaggedTeamIds] = React.useState<Set<string>>(
+    () => new Set(initialTaggedTeamIds)
+  );
+  const [teamTagPending, startTeamTagTransition] = React.useTransition();
+  const [pendingTeamSelection, setPendingTeamSelection] = React.useState<
+    string | null
+  >(null);
+
+  const teamsById = React.useMemo(() => {
+    const m = new Map<string, { id: string; name: string }>();
+    for (const t of allTeams) m.set(t.id, t);
+    return m;
+  }, [allTeams]);
+
+  // Untagged + not the author's own team. The author's team isn't a
+  // dependency on itself; the user explicitly asked for "OTHER teams" only.
+  const availableTeams = React.useMemo(
+    () =>
+      allTeams.filter(
+        (t) => !taggedTeamIds.has(t.id) && t.id !== authorTeamId
+      ),
+    [allTeams, taggedTeamIds, authorTeamId]
+  );
+
+  function addTeam(teamId: string) {
+    if (taggedTeamIds.has(teamId)) return;
+    const team = teamsById.get(teamId);
+    // Optimistic update so the chip appears immediately; rollback on failure.
+    setTaggedTeamIds((prev) => {
+      const next = new Set(prev);
+      next.add(teamId);
+      return next;
+    });
+    setPendingTeamSelection(null);
+    startTeamTagTransition(async () => {
+      try {
+        await addTeamTag(request.id, teamId);
+        toast.success(`Tagged team ${team?.name ?? ""}`.trim());
+        router.refresh();
+      } catch (err) {
+        setTaggedTeamIds((prev) => {
+          const next = new Set(prev);
+          next.delete(teamId);
+          return next;
+        });
+        const message =
+          err instanceof Error ? err.message : "Could not tag team";
+        toast.error(message);
+      }
+    });
+  }
+
+  function removeTeam(teamId: string) {
+    const team = teamsById.get(teamId);
+    setTaggedTeamIds((prev) => {
+      const next = new Set(prev);
+      next.delete(teamId);
+      return next;
+    });
+    startTeamTagTransition(async () => {
+      try {
+        await removeTeamTag(request.id, teamId);
+        toast.success(`Untagged team ${team?.name ?? ""}`.trim());
+        router.refresh();
+      } catch (err) {
+        setTaggedTeamIds((prev) => {
+          const next = new Set(prev);
+          next.add(teamId);
+          return next;
+        });
+        const message =
+          err instanceof Error ? err.message : "Could not untag team";
+        toast.error(message);
+      }
+    });
+  }
 
   function buildFormState() {
     const valuesPayload: Record<string, string | boolean> = {};
@@ -351,6 +445,80 @@ export function RequestForm({
         <p className="text-xs text-muted-foreground">
           Optional. When does this need to be done by?
         </p>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Dependent teams</Label>
+        <p className="text-xs text-muted-foreground">
+          Tag any teams whose work this depends on. They&apos;ll see the
+          request in their &quot;Tagged for me&quot; inbox.
+        </p>
+        {taggedTeamIds.size === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No teams tagged yet.
+          </p>
+        ) : (
+          <ul className="flex flex-wrap gap-2">
+            {Array.from(taggedTeamIds).map((teamId) => {
+              const team = teamsById.get(teamId);
+              const label = team?.name ?? "Unknown team";
+              return (
+                <li
+                  key={teamId}
+                  className="inline-flex items-center gap-1.5 rounded-full border bg-muted/40 py-1 pl-2.5 pr-1.5 text-xs"
+                >
+                  <span className="font-medium">{label}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeTeam(teamId)}
+                    disabled={teamTagPending}
+                    className="ml-1 flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground hover:bg-background hover:text-foreground disabled:opacity-50"
+                    aria-label={`Remove ${label}`}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {availableTeams.length > 0 ? (
+          <div className="flex items-center gap-2">
+            <Select
+              value={pendingTeamSelection ?? ""}
+              onValueChange={(v) => setPendingTeamSelection(v)}
+              disabled={teamTagPending}
+            >
+              <SelectTrigger className="w-full sm:w-72">
+                <SelectValue placeholder="Add a team…" />
+              </SelectTrigger>
+              <SelectContent>
+                {availableTeams.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>
+                    {t.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={!pendingTeamSelection || teamTagPending}
+              onClick={() => {
+                if (pendingTeamSelection) addTeam(pendingTeamSelection);
+              }}
+            >
+              Add
+            </Button>
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            {allTeams.length === 0
+              ? "No teams configured yet."
+              : "All other teams are already tagged."}
+          </p>
+        )}
       </div>
 
       {fields.map((f) => {
