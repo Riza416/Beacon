@@ -30,6 +30,7 @@ interface RequestRowJoined {
   submitted_at: string | null;
   updated_at: string;
   notion_url: string | null;
+  deadline: string | null;
   author_id: string;
   status: { id: string; label: string; color: string } | null;
   team: { id: string; name: string } | null;
@@ -42,6 +43,7 @@ interface DashboardPageProps {
     team?: string;
     status?: string;
     author?: string;
+    product?: string;
   }>;
 }
 
@@ -56,6 +58,7 @@ export default async function DashboardPage({
       teamFilter={search.team ?? ALL}
       statusFilter={search.status ?? ALL}
       authorFilter={search.author ?? ALL}
+      productFilter={search.product ?? ALL}
     />
   );
 }
@@ -71,11 +74,13 @@ async function Dashboard({
   teamFilter,
   statusFilter,
   authorFilter,
+  productFilter,
 }: {
   profile: Profile;
   teamFilter: string;
   statusFilter: string;
   authorFilter: string;
+  productFilter: string;
 }) {
   const supabase = await createClient();
   const isAdmin = profile.role === "admin";
@@ -110,7 +115,7 @@ async function Dashboard({
   let baseQuery = supabase
     .from("requests")
     .select(
-      "id, title, summary, state, priority, team_priority, team_id, product_id, status_id, submitted_at, updated_at, notion_url, author_id, " +
+      "id, title, summary, state, priority, team_priority, team_id, product_id, status_id, submitted_at, updated_at, notion_url, deadline, author_id, " +
         "status:statuses(id, label, color), " +
         "team:teams!requests_team_id_fkey(id, name), " +
         "product:products(id, name), " +
@@ -132,11 +137,41 @@ async function Dashboard({
   if (authorFilter !== ALL) {
     baseQuery = baseQuery.eq("author_id", authorFilter);
   }
+  if (productFilter !== ALL) {
+    baseQuery =
+      productFilter === UNASSIGNED
+        ? baseQuery.is("product_id", null)
+        : baseQuery.eq("product_id", productFilter);
+  }
 
   const { data: rawRequests } = await baseQuery
     .order("team_priority", { ascending: true })
     .order("updated_at", { ascending: false })
     .returns<RequestRowJoined[]>();
+
+  // Team dependencies: which other teams each request is tagged on. Two
+  // shapes built from the same rows:
+  //  - dependenciesByTeam: teamId -> requestIds (so a team's dashboard
+  //    section can list every request it's tagged on)
+  //  - tagsByRequest: requestId -> teamIds (so a request row can render
+  //    one badge per dependent team)
+  const { data: tagRows } = await supabase
+    .from("request_team_tags")
+    .select("request_id, team_id")
+    .returns<{ request_id: string; team_id: string }[]>();
+  const dependenciesByTeam = new Map<string, Set<string>>();
+  const tagsByRequest = new Map<string, string[]>();
+  for (const t of tagRows ?? []) {
+    const set = dependenciesByTeam.get(t.team_id) ?? new Set<string>();
+    set.add(t.request_id);
+    dependenciesByTeam.set(t.team_id, set);
+    const arr = tagsByRequest.get(t.request_id) ?? [];
+    arr.push(t.team_id);
+    tagsByRequest.set(t.request_id, arr);
+  }
+  const teamNameById = new Map<string, string>(
+    (teams ?? []).map((t) => [t.id, t.name])
+  );
 
   // Hide requests whose status is configured as terminal. They stay in the DB
   // and remain visible on /requests/[id] and /requests/mine — they're just
@@ -206,7 +241,10 @@ async function Dashboard({
     .sort((a, b) => a.label.localeCompare(b.label));
 
   const hasFilters =
-    teamFilter !== ALL || statusFilter !== ALL || authorFilter !== ALL;
+    teamFilter !== ALL ||
+    statusFilter !== ALL ||
+    authorFilter !== ALL ||
+    productFilter !== ALL;
 
   return (
     <div className="space-y-8">
@@ -234,6 +272,7 @@ async function Dashboard({
           color: s.color,
         }))}
         authors={authorOptions}
+        products={products ?? []}
       />
 
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -293,16 +332,32 @@ async function Dashboard({
             {orderedKeys.map((productId) => {
               const rows = byProduct.get(productId) ?? [];
 
-              // Within a product, further group by team. Inside each team
-              // sub-group, the rows are ordered by team_priority asc
-              // (already the base query's ordering).
-              const byTeamWithin = new Map<string | null, RequestRowJoined[]>();
+              // Each team's section lists every request the team is on:
+              // requests it authored AND requests where it's tagged as an
+              // interdependent team. The same request appears under every
+              // team it touches. Dependency rows get a small "Dep" badge so
+              // the relationship is still legible.
+              const byTeamWithin = new Map<
+                string | null,
+                { row: RequestRowJoined; isDependency: boolean }[]
+              >();
               for (const r of rows) {
-                const tk = r.team_id ?? null;
-                const arr = byTeamWithin.get(tk) ?? [];
-                arr.push(r);
-                byTeamWithin.set(tk, arr);
+                // Author's team — the main owner.
+                const ownerKey = r.team_id ?? null;
+                const ownerArr = byTeamWithin.get(ownerKey) ?? [];
+                ownerArr.push({ row: r, isDependency: false });
+                byTeamWithin.set(ownerKey, ownerArr);
               }
+              for (const [teamId, depIds] of dependenciesByTeam.entries()) {
+                for (const r of rows) {
+                  if (!depIds.has(r.id)) continue;
+                  if (r.team_id === teamId) continue; // already shown as owner
+                  const arr = byTeamWithin.get(teamId) ?? [];
+                  arr.push({ row: r, isDependency: true });
+                  byTeamWithin.set(teamId, arr);
+                }
+              }
+
               const teamKeys: (string | null)[] = [];
               for (const t of teams ?? []) {
                 if (byTeamWithin.has(t.id)) teamKeys.push(t.id);
@@ -336,15 +391,36 @@ async function Dashboard({
                           <Card>
                             <CardContent className="p-0">
                               <ul className="divide-y">
-                                {teamRows.map((r, idx) => (
-                                  <RequestRowItem
-                                    key={r.id}
-                                    row={r}
-                                    statuses={statuses ?? []}
-                                    position={idx + 1}
-                                    isAdmin={isAdmin}
-                                  />
-                                ))}
+                                {teamRows.map((entry, idx) => {
+                                  // Priority chip only makes sense on rows
+                                  // this team authored; dependency rows have
+                                  // a priority scoped to another team.
+                                  const ownerIdx = teamRows
+                                    .slice(0, idx + 1)
+                                    .filter((e) => !e.isDependency).length;
+                                  return (
+                                    <RequestRowItem
+                                      key={`${entry.isDependency ? "dep-" : ""}${entry.row.id}`}
+                                      row={entry.row}
+                                      statuses={statuses ?? []}
+                                      position={
+                                        entry.isDependency
+                                          ? undefined
+                                          : ownerIdx
+                                      }
+                                      isAdmin={isAdmin}
+                                      hideControls={entry.isDependency}
+                                      taggedTeams={(
+                                        tagsByRequest.get(entry.row.id) ?? []
+                                      ).flatMap((tid) => {
+                                        const name = teamNameById.get(tid);
+                                        return name
+                                          ? [{ id: tid, name }]
+                                          : [];
+                                      })}
+                                    />
+                                  );
+                                })}
                               </ul>
                             </CardContent>
                           </Card>
@@ -496,6 +572,7 @@ function RequestRowItem({
   compact = false,
   hideControls = false,
   isAdmin,
+  taggedTeams = [],
 }: {
   row: RequestRowJoined;
   statuses: Status[];
@@ -503,6 +580,8 @@ function RequestRowItem({
   compact?: boolean;
   hideControls?: boolean;
   isAdmin: boolean;
+  /** Teams tagged on this request as dependencies (excluding the owner). */
+  taggedTeams?: { id: string; name: string }[];
 }) {
   const showControls = isAdmin && !hideControls;
   return (
@@ -534,7 +613,26 @@ function RequestRowItem({
               {r.status.label}
             </Badge>
           )}
-          {r.team && <Badge variant="outline">{r.team.name}</Badge>}
+          {r.team && (
+            <Badge
+              variant="default"
+              title={`Owned by ${r.team.name}`}
+            >
+              {r.team.name}
+            </Badge>
+          )}
+          {taggedTeams
+            .filter((t) => t.id !== r.team?.id)
+            .map((t) => (
+              <Badge
+                key={`dep-${t.id}`}
+                variant="outline"
+                className="border-primary/50 text-primary/90"
+                title={`${t.name} is tagged as a dependency`}
+              >
+                {t.name}
+              </Badge>
+            ))}
           {r.notion_url && (
             <a
               href={r.notion_url}
@@ -550,6 +648,25 @@ function RequestRowItem({
           {r.author?.email ?? r.author?.full_name ?? "Unknown"}
           {" · "}
           {formatDate(r.updated_at)}
+          {r.deadline && (
+            <>
+              {" · "}
+              <span
+                className={
+                  new Date(r.deadline) < new Date()
+                    ? "font-medium text-destructive"
+                    : "font-medium"
+                }
+                title="Deadline"
+              >
+                due{" "}
+                {new Date(r.deadline).toLocaleDateString(undefined, {
+                  month: "short",
+                  day: "numeric",
+                })}
+              </span>
+            </>
+          )}
         </p>
       </div>
       {showControls && (
@@ -601,7 +718,7 @@ async function fetchTaggedForMe(
   const { data: requests } = await supabase
     .from("requests")
     .select(
-      "id, title, summary, state, priority, team_priority, team_id, status_id, submitted_at, updated_at, notion_url, author_id, " +
+      "id, title, summary, state, priority, team_priority, team_id, status_id, submitted_at, updated_at, notion_url, deadline, author_id, " +
         "status:statuses(id, label, color), " +
         "team:teams!requests_team_id_fkey(id, name), " +
         "author:profiles!requests_author_id_fkey(full_name, email)"
