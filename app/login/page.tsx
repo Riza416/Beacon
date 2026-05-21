@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
@@ -16,6 +16,17 @@ function LoginForm() {
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  // Defensive: if Supabase's misconfigured Site URL ever sends a magic-link
+  // code to /login instead of /auth/callback, forward it to the proper
+  // callback so the session can still be established.
+  useEffect(() => {
+    const code = search.get("code");
+    if (code) {
+      const target = `/auth/callback?code=${encodeURIComponent(code)}&next=${encodeURIComponent(next)}`;
+      window.location.replace(target);
+    }
+  }, [search, next]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
