@@ -30,6 +30,7 @@ interface RequestRowJoined {
   submitted_at: string | null;
   updated_at: string;
   notion_url: string | null;
+  deadline: string | null;
   author_id: string;
   status: { id: string; label: string; color: string } | null;
   team: { id: string; name: string } | null;
@@ -114,7 +115,7 @@ async function Dashboard({
   let baseQuery = supabase
     .from("requests")
     .select(
-      "id, title, summary, state, priority, team_priority, team_id, product_id, status_id, submitted_at, updated_at, notion_url, author_id, " +
+      "id, title, summary, state, priority, team_priority, team_id, product_id, status_id, submitted_at, updated_at, notion_url, deadline, author_id, " +
         "status:statuses(id, label, color), " +
         "team:teams!requests_team_id_fkey(id, name), " +
         "product:products(id, name), " +
@@ -564,6 +565,25 @@ function RequestRowItem({
           {r.author?.email ?? r.author?.full_name ?? "Unknown"}
           {" · "}
           {formatDate(r.updated_at)}
+          {r.deadline && (
+            <>
+              {" · "}
+              <span
+                className={
+                  new Date(r.deadline) < new Date()
+                    ? "font-medium text-destructive"
+                    : "font-medium"
+                }
+                title="Deadline"
+              >
+                due{" "}
+                {new Date(r.deadline).toLocaleDateString(undefined, {
+                  month: "short",
+                  day: "numeric",
+                })}
+              </span>
+            </>
+          )}
         </p>
       </div>
       {showControls && (
@@ -615,7 +635,7 @@ async function fetchTaggedForMe(
   const { data: requests } = await supabase
     .from("requests")
     .select(
-      "id, title, summary, state, priority, team_priority, team_id, status_id, submitted_at, updated_at, notion_url, author_id, " +
+      "id, title, summary, state, priority, team_priority, team_id, status_id, submitted_at, updated_at, notion_url, deadline, author_id, " +
         "status:statuses(id, label, color), " +
         "team:teams!requests_team_id_fkey(id, name), " +
         "author:profiles!requests_author_id_fkey(full_name, email)"

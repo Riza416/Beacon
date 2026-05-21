@@ -114,6 +114,9 @@ export function RequestForm({
   const [productId, setProductId] = React.useState<string | null>(
     request.product_id ?? null
   );
+  const [deadline, setDeadline] = React.useState<string>(
+    request.deadline ?? ""
+  );
 
   // Per-(field, type) values keyed by `${field_id}::${type}`.
   const initialFormValues = React.useMemo<Record<string, FormValue>>(() => {
@@ -175,7 +178,13 @@ export function RequestForm({
         }
       }
     }
-    return { title, summary, productId, values: valuesPayload };
+    return {
+      title,
+      summary,
+      productId,
+      deadline: deadline ? deadline : null,
+      values: valuesPayload,
+    };
   }
 
   function onSave() {
@@ -317,6 +326,31 @@ export function RequestForm({
             <code>/admin/products</code>.
           </p>
         )}
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="deadline">Deadline</Label>
+        <div className="flex items-center gap-2">
+          <Input
+            id="deadline"
+            type="date"
+            value={deadline}
+            onChange={(e) => setDeadline(e.target.value)}
+            className="w-fit"
+          />
+          {deadline && (
+            <button
+              type="button"
+              onClick={() => setDeadline("")}
+              className="text-xs text-muted-foreground hover:text-foreground underline"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Optional. When does this need to be done by?
+        </p>
       </div>
 
       {fields.map((f) => {

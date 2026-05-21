@@ -82,6 +82,8 @@ export interface RequestRow {
   state: RequestState;
   submitted_at: string | null;
   notion_url: string | null;
+  /** Optional day-level deadline (YYYY-MM-DD when set). */
+  deadline: string | null;
   created_at: string;
   updated_at: string;
 }

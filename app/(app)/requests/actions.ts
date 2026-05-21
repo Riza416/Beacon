@@ -54,6 +54,8 @@ interface FormState {
   title: string;
   summary: string;
   productId: string | null;
+  /** YYYY-MM-DD or null. */
+  deadline: string | null;
   values: FormValues;
 }
 
@@ -88,6 +90,11 @@ const formStateSchema = z.object({
   title: z.string().max(500),
   summary: z.string().max(20000),
   productId: z.string().uuid().nullable(),
+  // Postgres `date` column. Accept YYYY-MM-DD or null.
+  deadline: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date")
+    .nullable(),
   values: z.record(z.string(), z.union([z.string(), z.boolean()])),
 });
 
@@ -220,6 +227,7 @@ async function persistFormState(
     title,
     summary: summary.length === 0 ? null : summary,
     product_id: parsed.productId,
+    deadline: parsed.deadline,
   };
   if (nextTeamPriority !== undefined) {
     updates.team_priority = nextTeamPriority;

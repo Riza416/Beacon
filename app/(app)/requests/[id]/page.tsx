@@ -220,6 +220,30 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
             {request.submitted_at
               ? ` · submitted ${formatDate(request.submitted_at)}`
               : ` · updated ${formatDate(request.updated_at)}`}
+            {request.deadline && (
+              <span
+                className={
+                  new Date(request.deadline) < new Date()
+                    ? " · text-destructive font-medium"
+                    : ""
+                }
+              >
+                {" · deadline "}
+                <span
+                  className={
+                    new Date(request.deadline) < new Date()
+                      ? "text-destructive font-medium"
+                      : "font-medium"
+                  }
+                >
+                  {new Date(request.deadline).toLocaleDateString(undefined, {
+                    year: "numeric",
+                    month: "short",
+                    day: "numeric",
+                  })}
+                </span>
+              </span>
+            )}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
