@@ -39,8 +39,15 @@ export default async function AdminTeamsPage() {
       <Card>
         <CardContent className="p-0">
           {!teams || teams.length === 0 ? (
-            <div className="p-8 text-center text-sm text-muted-foreground">
-              No teams yet. Create one to get started.
+            <div className="flex flex-col items-center gap-3 p-8 text-center sm:p-12">
+              <p className="text-base font-medium">No teams yet</p>
+              <p className="max-w-sm text-sm text-muted-foreground">
+                Create a team to group people for tagging, routing, and
+                visibility.
+              </p>
+              <div className="mt-2">
+                <CreateTeamDialog />
+              </div>
             </div>
           ) : (
             <Table>

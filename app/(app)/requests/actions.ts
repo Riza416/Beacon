@@ -523,6 +523,182 @@ export async function reorderMine(
   return { ok: true };
 }
 
+// ---------------------------------------------------------------------------
+// Tagging: who is asked for feedback on a request.
+// User tags live in request_collaborators, team tags in request_team_tags.
+// Only the request author or an admin may mutate; everyone authenticated can
+// read. View state is tracked in request_collaborators.viewed_at (per-user)
+// and request_team_tag_views (per-(user, team-tag) pair).
+// ---------------------------------------------------------------------------
+
+const uuidSchema = z.string().uuid();
+
+async function assertCanTag(
+  requestId: string,
+  ctx: Awaited<ReturnType<typeof authedAction>>
+): Promise<void> {
+  const { supabase, profile } = ctx;
+  if (profile.role === "admin") return;
+  const { data, error } = await supabase
+    .from("requests")
+    .select("author_id")
+    .eq("id", requestId)
+    .maybeSingle<{ author_id: string }>();
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error("Request not found");
+  if (data.author_id !== profile.id) {
+    throw new Error("Only the author or an admin can change tags.");
+  }
+}
+
+function revalidateTagPaths(requestId: string) {
+  revalidatePath(`/requests/${requestId}`);
+  revalidatePath("/");
+  revalidatePath("/requests/tagged-for-me");
+}
+
+export async function addUserTag(
+  requestId: string,
+  userId: string
+): Promise<{ ok: true }> {
+  const reqId = uuidSchema.parse(requestId);
+  const uId = uuidSchema.parse(userId);
+  const ctx = await authedAction();
+  await assertCanTag(reqId, ctx);
+
+  // upsert-style insert: if the tag already exists we silently succeed so the
+  // UI is idempotent.
+  const { error } = await ctx.supabase
+    .from("request_collaborators")
+    .upsert(
+      { request_id: reqId, user_id: uId },
+      { onConflict: "request_id,user_id", ignoreDuplicates: true }
+    );
+  if (error) throw new Error(error.message);
+
+  revalidateTagPaths(reqId);
+  return { ok: true };
+}
+
+export async function removeUserTag(
+  requestId: string,
+  userId: string
+): Promise<{ ok: true }> {
+  const reqId = uuidSchema.parse(requestId);
+  const uId = uuidSchema.parse(userId);
+  const ctx = await authedAction();
+  await assertCanTag(reqId, ctx);
+
+  const { error } = await ctx.supabase
+    .from("request_collaborators")
+    .delete()
+    .eq("request_id", reqId)
+    .eq("user_id", uId);
+  if (error) throw new Error(error.message);
+
+  revalidateTagPaths(reqId);
+  return { ok: true };
+}
+
+export async function addTeamTag(
+  requestId: string,
+  teamId: string
+): Promise<{ ok: true }> {
+  const reqId = uuidSchema.parse(requestId);
+  const tId = uuidSchema.parse(teamId);
+  const ctx = await authedAction();
+  await assertCanTag(reqId, ctx);
+
+  const { error } = await ctx.supabase
+    .from("request_team_tags")
+    .upsert(
+      { request_id: reqId, team_id: tId },
+      { onConflict: "request_id,team_id", ignoreDuplicates: true }
+    );
+  if (error) throw new Error(error.message);
+
+  revalidateTagPaths(reqId);
+  return { ok: true };
+}
+
+export async function removeTeamTag(
+  requestId: string,
+  teamId: string
+): Promise<{ ok: true }> {
+  const reqId = uuidSchema.parse(requestId);
+  const tId = uuidSchema.parse(teamId);
+  const ctx = await authedAction();
+  await assertCanTag(reqId, ctx);
+
+  const { error } = await ctx.supabase
+    .from("request_team_tags")
+    .delete()
+    .eq("request_id", reqId)
+    .eq("team_id", tId);
+  if (error) throw new Error(error.message);
+
+  revalidateTagPaths(reqId);
+  return { ok: true };
+}
+
+/**
+ * Clear the caller's unread state for any tags pointing at this request.
+ *
+ * - For user tags: stamp viewed_at on the row where user_id = me.
+ * - For team tags on my team: insert a request_team_tag_views row (if missing).
+ *
+ * Safe to call on every visit — both paths are no-ops when there's nothing to
+ * mark.
+ */
+export async function markTagsViewed(
+  requestId: string
+): Promise<{ ok: true }> {
+  const reqId = uuidSchema.parse(requestId);
+  const { supabase, profile } = await authedAction();
+
+  // 1) user tag: stamp viewed_at if not already set.
+  const { error: ucErr } = await supabase
+    .from("request_collaborators")
+    .update({ viewed_at: new Date().toISOString() })
+    .eq("request_id", reqId)
+    .eq("user_id", profile.id)
+    .is("viewed_at", null);
+  if (ucErr) throw new Error(ucErr.message);
+
+  // 2) team tag: insert a view row for each tag on my team that I haven't
+  // viewed yet. We resolve the matching team tags first, then upsert with
+  // ignoreDuplicates so existing views are kept untouched.
+  if (profile.team_id) {
+    const { data: teamTags, error: ttErr } = await supabase
+      .from("request_team_tags")
+      .select("team_id")
+      .eq("request_id", reqId)
+      .eq("team_id", profile.team_id)
+      .returns<{ team_id: string }[]>();
+    if (ttErr) throw new Error(ttErr.message);
+
+    if (teamTags && teamTags.length > 0) {
+      const rows = teamTags.map((t) => ({
+        request_id: reqId,
+        team_id: t.team_id,
+        user_id: profile.id,
+      }));
+      const { error: vErr } = await supabase
+        .from("request_team_tag_views")
+        .upsert(rows, {
+          onConflict: "request_id,team_id,user_id",
+          ignoreDuplicates: true,
+        });
+      if (vErr) throw new Error(vErr.message);
+    }
+  }
+
+  // Don't revalidate /requests/[id] — we're already rendering it.
+  revalidatePath("/");
+  revalidatePath("/requests/tagged-for-me");
+  return { ok: true };
+}
+
 export async function reorderTeamPriority(
   requestId: string,
   direction: "up" | "down"

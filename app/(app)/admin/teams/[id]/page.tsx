@@ -61,14 +61,14 @@ export default async function TeamDetailPage({
             {team.description || "No description."}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <EditTeamDialog team={team} />
           <DeleteTeamButton teamId={team.id} teamName={team.name} />
         </div>
       </header>
 
       <section className="space-y-3">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-lg font-medium">
             Members ({members?.length ?? 0})
           </h2>

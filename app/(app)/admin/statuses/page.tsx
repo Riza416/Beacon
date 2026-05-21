@@ -49,8 +49,17 @@ export default async function AdminStatusesPage() {
       <Card>
         <CardContent className="p-0">
           {!statuses || statuses.length === 0 ? (
-            <div className="p-8 text-center text-sm text-muted-foreground">
-              No statuses yet. Add one to start triaging requests.
+            <div className="flex flex-col items-center gap-3 p-8 text-center sm:p-12">
+              <p className="text-base font-medium">No statuses yet</p>
+              <p className="max-w-sm text-sm text-muted-foreground">
+                Define the lifecycle a request can move through.
+              </p>
+              <div className="mt-2">
+                <StatusDialog
+                  mode="create"
+                  trigger={<Button>Add status</Button>}
+                />
+              </div>
             </div>
           ) : (
             <Table>

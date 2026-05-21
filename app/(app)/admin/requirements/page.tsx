@@ -57,8 +57,15 @@ export default async function AdminRequirementsPage() {
       <Card>
         <CardContent className="p-0">
           {!fields || fields.length === 0 ? (
-            <div className="p-8 text-center text-sm text-muted-foreground">
-              No fields yet. Add one to start collecting structured data.
+            <div className="flex flex-col items-center gap-3 p-8 text-center sm:p-12">
+              <p className="text-base font-medium">No fields configured</p>
+              <p className="max-w-sm text-sm text-muted-foreground">
+                Add a field to start collecting structured information on
+                request forms.
+              </p>
+              <div className="mt-2">
+                <CreateFieldDialog />
+              </div>
             </div>
           ) : (
             <Table>

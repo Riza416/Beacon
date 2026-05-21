@@ -1,14 +1,60 @@
 import Link from "next/link";
 import { getCurrentProfile } from "@/lib/auth";
+import { createClient } from "@/lib/supabase/server";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { BeaconLogo } from "@/components/logo";
+import { NotificationBell } from "@/components/notification-bell";
+
+async function countUnreadTags(profileId: string, teamId: string | null) {
+  const supabase = await createClient();
+
+  // 1) Direct user tags with no viewed_at.
+  const { count: userUnreadRaw } = await supabase
+    .from("request_collaborators")
+    .select("request_id", { count: "exact", head: true })
+    .eq("user_id", profileId)
+    .is("viewed_at", null);
+  const userUnread = userUnreadRaw ?? 0;
+
+  if (!teamId) return userUnread;
+
+  // 2) Team tags on my team where I have no view row yet. PostgREST doesn't
+  // do anti-joins, so fetch the team-tag set and my views and diff in JS.
+  // These tables are tiny (one row per (request, team) pairing) so the round
+  // trip is fine.
+  const { data: teamTagRows } = await supabase
+    .from("request_team_tags")
+    .select("request_id, team_id")
+    .eq("team_id", teamId)
+    .returns<{ request_id: string; team_id: string }[]>();
+
+  if (!teamTagRows || teamTagRows.length === 0) return userUnread;
+
+  const { data: viewRows } = await supabase
+    .from("request_team_tag_views")
+    .select("request_id, team_id")
+    .eq("user_id", profileId)
+    .eq("team_id", teamId)
+    .returns<{ request_id: string; team_id: string }[]>();
+
+  const seen = new Set(
+    (viewRows ?? []).map((v) => `${v.request_id}::${v.team_id}`)
+  );
+  let teamUnread = 0;
+  for (const r of teamTagRows) {
+    if (!seen.has(`${r.request_id}::${r.team_id}`)) teamUnread += 1;
+  }
+
+  return userUnread + teamUnread;
+}
 
 export default async function Nav() {
   const profile = await getCurrentProfile();
   if (!profile) return null;
 
   const isAdmin = profile.role === "admin";
+  const unread = await countUnreadTags(profile.id, profile.team_id);
 
   return (
     <header className="border-b bg-background">
@@ -47,6 +93,7 @@ export default async function Nav() {
             {profile.email ?? profile.full_name}
           </span>
           <Badge variant={isAdmin ? "default" : "secondary"}>{profile.role}</Badge>
+          <NotificationBell count={unread} />
           <form action="/auth/signout" method="post">
             <Button variant="ghost" size="sm" type="submit">
               Sign out

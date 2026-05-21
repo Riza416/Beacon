@@ -15,6 +15,12 @@ import { AdminControls } from "@/components/admin-controls";
 import { NotionUrlCard } from "@/components/notion-url-card";
 import { CommentForm } from "@/components/comment-form";
 import { SubmitButton } from "@/components/submit-button";
+import {
+  TagPicker,
+  type TagPickerProfile,
+  type TagPickerTeam,
+} from "@/components/tag-picker";
+import { markTagsViewed } from "@/app/(app)/requests/actions";
 import { formatDate } from "@/lib/utils";
 import type {
   Comment,
@@ -97,6 +103,44 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
   const isAdmin = profile.role === "admin";
   const isAuthor = request.author_id === profile.id;
   const isDraft = request.state === "draft";
+  const canManageTags = isAdmin || isAuthor;
+
+  // Existing tags on this request.
+  const { data: userTagRows } = await supabase
+    .from("request_collaborators")
+    .select("user_id")
+    .eq("request_id", id)
+    .returns<{ user_id: string }[]>();
+  const { data: teamTagRows } = await supabase
+    .from("request_team_tags")
+    .select("team_id")
+    .eq("request_id", id)
+    .returns<{ team_id: string }[]>();
+
+  // All profiles + teams for the picker (every authenticated user can read
+  // both tables — RLS in 0002_rls.sql).
+  const { data: profileRows } = await supabase
+    .from("profiles")
+    .select("id, full_name, email")
+    .order("full_name", { ascending: true, nullsFirst: false })
+    .returns<TagPickerProfile[]>();
+  const { data: teamRows } = await supabase
+    .from("teams")
+    .select("id, name")
+    .order("name", { ascending: true })
+    .returns<TagPickerTeam[]>();
+
+  const taggedUserIds = (userTagRows ?? []).map((r) => r.user_id);
+  const taggedTeamIds = (teamTagRows ?? []).map((r) => r.team_id);
+
+  // Clear the caller's unread state for this request. Best-effort: if the
+  // call fails (e.g. brief RLS hiccup) we still want to render the page, so
+  // swallow the error rather than crash the route.
+  try {
+    await markTagsViewed(id);
+  } catch {
+    // ignore — the next visit will retry.
+  }
 
   // Sign URLs for any file/image fields.
   const signedUrls = new Map<string, string>();
@@ -289,6 +333,26 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
           currentStatusId={request.status_id}
         />
       )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Tagged for feedback</CardTitle>
+          <CardDescription>
+            People and teams asked to weigh in on this request. Tagged users
+            can comment even if they&apos;re not on the author&apos;s team.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <TagPicker
+            requestId={id}
+            profiles={profileRows ?? []}
+            teams={teamRows ?? []}
+            taggedUserIds={taggedUserIds}
+            taggedTeamIds={taggedTeamIds}
+            canMutate={canManageTags}
+          />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
