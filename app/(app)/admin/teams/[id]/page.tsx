@@ -76,6 +76,33 @@ export default async function TeamDetailPage({
     .order("updated_at", { ascending: false })
     .returns<TeamRequestRow[]>();
 
+  // Requests where this team is tagged as a dependency (authored by some
+  // other team). Two-step: get the tag rows, then fetch the requests by id
+  // and exclude rows authored by this team (those are already above).
+  const { data: tagRows } = await supabase
+    .from("request_team_tags")
+    .select("request_id")
+    .eq("team_id", id)
+    .returns<{ request_id: string }[]>();
+  const taggedIds = (tagRows ?? []).map((r) => r.request_id);
+
+  let dependencyRequests: TeamRequestRow[] = [];
+  if (taggedIds.length > 0) {
+    const { data: depRows } = await supabase
+      .from("requests")
+      .select(
+        "id, title, state, team_priority, notion_url, updated_at, " +
+          "status:statuses(id, label, color), " +
+          "product:products(id, name), " +
+          "author:profiles!requests_author_id_fkey(full_name, email)"
+      )
+      .in("id", taggedIds)
+      .neq("team_id", id)
+      .order("updated_at", { ascending: false })
+      .returns<TeamRequestRow[]>();
+    dependencyRequests = depRows ?? [];
+  }
+
   return (
     <div className="space-y-8">
       <header className="flex flex-wrap items-end justify-between gap-4">
@@ -108,73 +135,28 @@ export default async function TeamDetailPage({
                 No requests from this team yet.
               </div>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-16">Priority</TableHead>
-                    <TableHead>Title</TableHead>
-                    <TableHead>Product</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Author</TableHead>
-                    <TableHead className="w-40">Updated</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {requests.map((r) => (
-                    <TableRow key={r.id}>
-                      <TableCell className="tabular-nums text-muted-foreground">
-                        {r.team_priority}
-                      </TableCell>
-                      <TableCell className="font-medium">
-                        <Link
-                          href={`/requests/${r.id}`}
-                          className="hover:underline"
-                        >
-                          {r.title || "Untitled draft"}
-                        </Link>
-                        {r.state === "draft" && (
-                          <Badge variant="secondary" className="ml-2">
-                            Draft
-                          </Badge>
-                        )}
-                        {r.notion_url && (
-                          <a
-                            href={r.notion_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="ml-2 text-xs underline text-muted-foreground"
-                          >
-                            Notion ↗
-                          </a>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {r.product?.name ?? "—"}
-                      </TableCell>
-                      <TableCell>
-                        {r.status ? (
-                          <Badge
-                            style={{
-                              backgroundColor: r.status.color,
-                              color: "white",
-                            }}
-                          >
-                            {r.status.label}
-                          </Badge>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {r.author?.email ?? r.author?.full_name ?? "Unknown"}
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {formatDate(r.updated_at)}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <RequestTable rows={requests} showPriority />
+            )}
+          </CardContent>
+        </Card>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-lg font-medium">
+          Tagged as a dependency ({dependencyRequests.length})
+        </h2>
+        <p className="text-xs text-muted-foreground">
+          Requests authored by other teams that list this team as an
+          interdependent dependency.
+        </p>
+        <Card className="border-dashed">
+          <CardContent className="p-0">
+            {dependencyRequests.length === 0 ? (
+              <div className="p-8 text-center text-sm text-muted-foreground">
+                No dependency tags on this team yet.
+              </div>
+            ) : (
+              <RequestTable rows={dependencyRequests} />
             )}
           </CardContent>
         </Card>
@@ -227,5 +209,85 @@ export default async function TeamDetailPage({
         </Card>
       </section>
     </div>
+  );
+}
+
+function RequestTable({
+  rows,
+  showPriority = false,
+}: {
+  rows: TeamRequestRow[];
+  showPriority?: boolean;
+}) {
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          {showPriority && <TableHead className="w-16">Priority</TableHead>}
+          <TableHead>Title</TableHead>
+          <TableHead>Product</TableHead>
+          <TableHead>Status</TableHead>
+          <TableHead>Author</TableHead>
+          <TableHead className="w-40">Updated</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {rows.map((r) => (
+          <TableRow key={r.id}>
+            {showPriority && (
+              <TableCell className="tabular-nums text-muted-foreground">
+                {r.team_priority}
+              </TableCell>
+            )}
+            <TableCell className="font-medium">
+              <Link
+                href={`/requests/${r.id}`}
+                className="hover:underline"
+              >
+                {r.title || "Untitled draft"}
+              </Link>
+              {r.state === "draft" && (
+                <Badge variant="secondary" className="ml-2">
+                  Draft
+                </Badge>
+              )}
+              {r.notion_url && (
+                <a
+                  href={r.notion_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="ml-2 text-xs underline text-muted-foreground"
+                >
+                  Notion ↗
+                </a>
+              )}
+            </TableCell>
+            <TableCell className="text-sm text-muted-foreground">
+              {r.product?.name ?? "—"}
+            </TableCell>
+            <TableCell>
+              {r.status ? (
+                <Badge
+                  style={{
+                    backgroundColor: r.status.color,
+                    color: "white",
+                  }}
+                >
+                  {r.status.label}
+                </Badge>
+              ) : (
+                <span className="text-xs text-muted-foreground">—</span>
+              )}
+            </TableCell>
+            <TableCell className="text-sm text-muted-foreground">
+              {r.author?.email ?? r.author?.full_name ?? "Unknown"}
+            </TableCell>
+            <TableCell className="text-xs text-muted-foreground">
+              {formatDate(r.updated_at)}
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   );
 }
