@@ -504,8 +504,22 @@ export async function updateNotionUrl(
 
 export async function deleteRequest(requestId: string): Promise<void> {
   const { supabase } = await adminAction();
+
+  // Capture the team_id before deletion so we can compact its priorities
+  // after the gap appears.
+  const { data: doomed } = await supabase
+    .from("requests")
+    .select("team_id")
+    .eq("id", requestId)
+    .maybeSingle<{ team_id: string | null }>();
+
   const { error } = await supabase.from("requests").delete().eq("id", requestId);
   if (error) throw new Error(error.message);
+
+  if (doomed?.team_id) {
+    await compactTeamPriorities(supabase, doomed.team_id);
+  }
+
   revalidatePath("/");
   revalidatePath("/requests/mine");
   redirect("/");
@@ -742,6 +756,35 @@ export async function markTagsViewed(
   revalidatePath("/");
   revalidatePath("/requests/tagged-for-me");
   return { ok: true };
+}
+
+/**
+ * Renumber every request in a team so priorities form a dense 0..N-1
+ * sequence by their current order. Used after delete (gap) and as a sanity
+ * compactor anywhere the invariant might have drifted. No-op for null-team.
+ */
+async function compactTeamPriorities(
+  supabase: Awaited<ReturnType<typeof adminAction>>["supabase"],
+  teamId: string | null
+): Promise<void> {
+  if (!teamId) return;
+  const { data: rows, error } = await supabase
+    .from("requests")
+    .select("id, team_priority, updated_at")
+    .eq("team_id", teamId)
+    .order("team_priority", { ascending: true })
+    .order("updated_at", { ascending: false })
+    .returns<{ id: string; team_priority: number; updated_at: string }[]>();
+  if (error) throw new Error(error.message);
+  if (!rows) return;
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i].team_priority === i) continue;
+    const { error: updErr } = await supabase
+      .from("requests")
+      .update({ team_priority: i })
+      .eq("id", rows[i].id);
+    if (updErr) throw new Error(updErr.message);
+  }
 }
 
 /**
