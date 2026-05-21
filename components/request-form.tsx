@@ -277,7 +277,10 @@ export function RequestForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="summary">Summary</Label>
+        <Label htmlFor="summary" className="flex items-center">
+          <span>Summary</span>
+          <span className="ml-1 text-destructive">*</span>
+        </Label>
         <Textarea
           id="summary"
           value={summary}
@@ -285,6 +288,9 @@ export function RequestForm({
           placeholder="A short description of what you're asking for."
           rows={4}
         />
+        <p className="text-xs text-muted-foreground">
+          Required to submit. Save draft works without it.
+        </p>
       </div>
 
       <div className="space-y-2">

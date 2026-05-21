@@ -360,6 +360,21 @@ export async function submitRequest(
     .filter((f) => f.required_level === "hard" && !isFilled(f))
     .map((f) => ({ id: f.id, label: f.label }));
 
+  // Summary is a built-in field on the request row (not a custom
+  // request_field_definition), so its required-to-submit check lives here.
+  // We re-read the row because persistFormState above may have just updated
+  // it from the form state — the `req` snapshot from assertEditable is stale.
+  const { data: freshReq, error: freshErr } = await supabase
+    .from("requests")
+    .select("summary")
+    .eq("id", requestId)
+    .maybeSingle<{ summary: string | null }>();
+  if (freshErr) throw new Error(freshErr.message);
+  const persistedSummary = freshReq?.summary ?? null;
+  if (!persistedSummary || persistedSummary.trim().length === 0) {
+    hardMissing.unshift({ id: "__summary__", label: "Summary" });
+  }
+
   if (hardMissing.length > 0) {
     return { ok: false, kind: "hard", missing: hardMissing };
   }
