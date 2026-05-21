@@ -1,17 +1,24 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { BeaconLogo } from "@/components/logo";
 
+type Mode = "signin-password" | "signin-magic" | "signup";
+
 function LoginForm() {
-  const router = useRouter();
   const search = useSearchParams();
   const next = search.get("next") ?? "/";
   const errorParam = search.get("error");
@@ -20,13 +27,13 @@ function LoginForm() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [mode, setMode] = useState<"magic" | "password">("password");
-  const [sent, setSent] = useState(false);
+  const [mode, setMode] = useState<Mode>("signin-password");
+  const [magicSent, setMagicSent] = useState(false);
+  const [signupSent, setSignupSent] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // Defensive: if Supabase's misconfigured Site URL ever sends a magic-link
-  // code to /login instead of /auth/callback, forward it to the proper
-  // callback so the session can still be established.
+  // Defensive: if Supabase ever sends a magic-link code to /login instead
+  // of /auth/callback, forward it so the session can still be established.
   useEffect(() => {
     const code = search.get("code");
     if (code) {
@@ -58,7 +65,7 @@ function LoginForm() {
       toast.error(error.message);
       return;
     }
-    setSent(true);
+    setMagicSent(true);
   }
 
   async function onPassword(e: React.FormEvent) {
@@ -74,8 +81,39 @@ function LoginForm() {
       toast.error(error.message);
       return;
     }
-    // Force a navigation so the new session cookies flow through the proxy.
     window.location.replace(next);
+  }
+
+  async function onSignup(e: React.FormEvent) {
+    e.preventDefault();
+    if (password.length < 8) {
+      toast.error("Password must be at least 8 characters");
+      return;
+    }
+    setLoading(true);
+    const supabase = createClient();
+    const site = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        emailRedirectTo: `${site}/auth/callback?next=${encodeURIComponent(next)}`,
+      },
+    });
+    setLoading(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    // If email confirmation is disabled in Supabase, the user is logged in
+    // immediately and a session is returned. Otherwise they need to click
+    // the verification link in their inbox first.
+    if (data.session) {
+      toast.success("Account created — you're in.");
+      window.location.replace(next);
+      return;
+    }
+    setSignupSent(true);
   }
 
   return (
@@ -85,7 +123,9 @@ function LoginForm() {
           <BeaconLogo size={28} />
         </CardTitle>
         <CardDescription>
-          Sign in to Beacon — pick a method.
+          {mode === "signup"
+            ? "Create an account to start tracking requests."
+            : "Sign in to Beacon."}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -97,54 +137,59 @@ function LoginForm() {
           </div>
         )}
 
-        {/* Method toggle */}
-        <div className="flex rounded-md border border-border p-0.5 text-xs">
-          <button
-            type="button"
-            onClick={() => setMode("password")}
-            className={`flex-1 rounded px-2 py-1.5 transition-colors ${
-              mode === "password"
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            Email + password
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode("magic")}
-            className={`flex-1 rounded px-2 py-1.5 transition-colors ${
-              mode === "magic"
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            Magic link
-          </button>
-        </div>
+        {/* Sign-in / Sign-up switcher — only shows in sign-in modes */}
+        {mode !== "signup" && (
+          <div className="flex rounded-md border border-border p-0.5 text-xs">
+            <button
+              type="button"
+              onClick={() => setMode("signin-password")}
+              className={`flex-1 rounded px-2 py-1.5 transition-colors ${
+                mode === "signin-password"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Email + password
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("signin-magic")}
+              className={`flex-1 rounded px-2 py-1.5 transition-colors ${
+                mode === "signin-magic"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Magic link
+            </button>
+          </div>
+        )}
 
-        {sent && mode === "magic" ? (
-          <p className="text-sm text-muted-foreground">
-            Check <span className="font-medium">{email}</span> for the sign-in link.
-          </p>
-        ) : mode === "magic" ? (
-          <form onSubmit={onMagicLink} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@company.com"
-              />
-            </div>
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Sending..." : "Send magic link"}
-            </Button>
-          </form>
-        ) : (
+        {mode === "signin-magic" ? (
+          magicSent ? (
+            <p className="text-sm text-muted-foreground">
+              Check <span className="font-medium">{email}</span> for the sign-in link.
+            </p>
+          ) : (
+            <form onSubmit={onMagicLink} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="email-magic">Email</Label>
+                <Input
+                  id="email-magic"
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@company.com"
+                  autoComplete="email"
+                />
+              </div>
+              <Button type="submit" className="w-full" disabled={loading}>
+                {loading ? "Sending..." : "Send magic link"}
+              </Button>
+            </form>
+          )
+        ) : mode === "signin-password" ? (
           <form onSubmit={onPassword} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email-pw">Email</Label>
@@ -174,7 +219,76 @@ function LoginForm() {
               {loading ? "Signing in..." : "Sign in"}
             </Button>
           </form>
+        ) : signupSent ? (
+          <p className="text-sm text-muted-foreground">
+            Check <span className="font-medium">{email}</span> for a verification
+            link, then sign in.
+          </p>
+        ) : (
+          <form onSubmit={onSignup} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="email-su">Email</Label>
+              <Input
+                id="email-su"
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@company.com"
+                autoComplete="email"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="password-su">Password</Label>
+              <Input
+                id="password-su"
+                type="password"
+                required
+                minLength={8}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="At least 8 characters"
+                autoComplete="new-password"
+              />
+            </div>
+            <Button type="submit" className="w-full" disabled={loading}>
+              {loading ? "Creating account..." : "Sign up"}
+            </Button>
+          </form>
         )}
+
+        {/* Footer toggle: sign-in <-> sign-up */}
+        <div className="border-t border-border pt-3 text-center text-xs text-muted-foreground">
+          {mode === "signup" ? (
+            <>
+              Already have an account?{" "}
+              <button
+                type="button"
+                onClick={() => {
+                  setMode("signin-password");
+                  setSignupSent(false);
+                }}
+                className="font-medium text-primary hover:underline"
+              >
+                Sign in
+              </button>
+            </>
+          ) : (
+            <>
+              No account yet?{" "}
+              <button
+                type="button"
+                onClick={() => {
+                  setMode("signup");
+                  setMagicSent(false);
+                }}
+                className="font-medium text-primary hover:underline"
+              >
+                Sign up
+              </button>
+            </>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
