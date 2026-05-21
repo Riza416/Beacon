@@ -30,7 +30,12 @@ import {
   setFieldFile,
 } from "@/app/(app)/requests/actions";
 import type { SubmitResult } from "@/lib/request-actions-types";
-import type { FieldDefinition, FieldValue, RequestRow } from "@/lib/types";
+import type {
+  FieldDefinition,
+  FieldType,
+  FieldValue,
+  RequestRow,
+} from "@/lib/types";
 
 interface RequestFormProps {
   request: RequestRow;
@@ -43,6 +48,27 @@ interface RequestFormProps {
 
 type FormValue = string | boolean | string[];
 
+const TYPE_CAPTIONS: Record<FieldType, string> = {
+  short_text: "Short answer",
+  long_text: "Detailed answer",
+  url: "Link",
+  file: "File",
+  image: "Screenshot",
+  select: "Pick one",
+  multi_select: "Pick several",
+  checkbox: "Yes / no",
+};
+
+function fieldKey(fieldId: string, type: FieldType): string {
+  return `${fieldId}::${type}`;
+}
+
+function allowedTypes(field: FieldDefinition): FieldType[] {
+  return field.field_types && field.field_types.length > 0
+    ? field.field_types
+    : [field.field_type];
+}
+
 function parseMultiSelect(raw: string | null): string[] {
   if (!raw) return [];
   try {
@@ -53,14 +79,14 @@ function parseMultiSelect(raw: string | null): string[] {
   }
 }
 
-function valueForField(f: FieldDefinition, v: FieldValue | undefined): FormValue {
+function valueForType(type: FieldType, v: FieldValue | undefined): FormValue {
   if (!v) {
-    if (f.field_type === "checkbox") return false;
-    if (f.field_type === "multi_select") return [];
+    if (type === "checkbox") return false;
+    if (type === "multi_select") return [];
     return "";
   }
-  if (f.field_type === "checkbox") return v.value_text === "true";
-  if (f.field_type === "multi_select") return parseMultiSelect(v.value_text);
+  if (type === "checkbox") return v.value_text === "true";
+  if (type === "multi_select") return parseMultiSelect(v.value_text);
   return v.value_text ?? "";
 }
 
@@ -75,34 +101,44 @@ export function RequestForm({
   const [title, setTitle] = React.useState(request.title ?? "");
   const [summary, setSummary] = React.useState(request.summary ?? "");
 
-  // Per-field values keyed by field_definition_id.
+  // Per-(field, type) values keyed by `${field_id}::${type}`.
   const initialFormValues = React.useMemo<Record<string, FormValue>>(() => {
-    const byField = new Map<string, FieldValue>();
-    for (const v of values) byField.set(v.field_definition_id, v);
+    const byKey = new Map<string, FieldValue>();
+    for (const v of values) {
+      byKey.set(fieldKey(v.field_definition_id, v.field_type), v);
+    }
     const map: Record<string, FormValue> = {};
     for (const f of fields) {
-      map[f.id] = valueForField(f, byField.get(f.id));
+      for (const t of allowedTypes(f)) {
+        const k = fieldKey(f.id, t);
+        map[k] = valueForType(t, byKey.get(k));
+      }
     }
     return map;
   }, [fields, values]);
   const [formValues, setFormValues] =
     React.useState<Record<string, FormValue>>(initialFormValues);
 
-  // Track file_path per field for file/image fields (displayed as filename).
+  // file_path per (field, type) for file/image sub-inputs.
   const initialFilePaths = React.useMemo<Record<string, string | null>>(() => {
-    const byField = new Map<string, FieldValue>();
-    for (const v of values) byField.set(v.field_definition_id, v);
+    const byKey = new Map<string, FieldValue>();
+    for (const v of values) {
+      byKey.set(fieldKey(v.field_definition_id, v.field_type), v);
+    }
     const map: Record<string, string | null> = {};
     for (const f of fields) {
-      if (f.field_type === "file" || f.field_type === "image") {
-        map[f.id] = byField.get(f.id)?.file_path ?? null;
+      for (const t of allowedTypes(f)) {
+        if (t === "file" || t === "image") {
+          const k = fieldKey(f.id, t);
+          map[k] = byKey.get(k)?.file_path ?? null;
+        }
       }
     }
     return map;
   }, [fields, values]);
   const [filePaths, setFilePaths] =
     React.useState<Record<string, string | null>>(initialFilePaths);
-  const [uploadingField, setUploadingField] = React.useState<string | null>(null);
+  const [uploadingKey, setUploadingKey] = React.useState<string | null>(null);
 
   const [isPending, startTransition] = React.useTransition();
   const [softModal, setSoftModal] = React.useState<{
@@ -113,13 +149,16 @@ export function RequestForm({
   function buildFormState() {
     const valuesPayload: Record<string, string | boolean> = {};
     for (const f of fields) {
-      const v = formValues[f.id];
-      if (v === undefined) continue;
-      // Multi-select is serialized to JSON so it fits in value_text (a string column).
-      if (Array.isArray(v)) {
-        valuesPayload[f.id] = JSON.stringify(v);
-      } else {
-        valuesPayload[f.id] = v;
+      for (const t of allowedTypes(f)) {
+        const k = fieldKey(f.id, t);
+        const v = formValues[k];
+        if (v === undefined) continue;
+        // Multi-select is serialized to JSON so it fits in value_text.
+        if (Array.isArray(v)) {
+          valuesPayload[k] = JSON.stringify(v);
+        } else {
+          valuesPayload[k] = v;
+        }
       }
     }
     return { title, summary, values: valuesPayload };
@@ -168,31 +207,36 @@ export function RequestForm({
     });
   }
 
-  async function onFileChange(field: FieldDefinition, file: File | null) {
+  async function onFileChange(
+    field: FieldDefinition,
+    type: FieldType,
+    file: File | null
+  ) {
     if (!file) return;
     const supabase = createClient();
-    setUploadingField(field.id);
+    const k = fieldKey(field.id, type);
+    setUploadingKey(k);
     try {
       const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-      const path = `${uploaderId}/${request.id}/${field.id}/${Date.now()}-${safeName}`;
+      const path = `${uploaderId}/${request.id}/${field.id}/${type}/${Date.now()}-${safeName}`;
       const { error } = await supabase.storage
         .from("request-attachments")
         .upload(path, file, { upsert: true });
       if (error) throw new Error(error.message);
-      await setFieldFile(request.id, field.id, path);
-      setFilePaths((prev) => ({ ...prev, [field.id]: path }));
+      await setFieldFile(request.id, field.id, type, path);
+      setFilePaths((prev) => ({ ...prev, [k]: path }));
       toast.success("File uploaded");
       router.refresh();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Upload failed";
       toast.error(message);
     } finally {
-      setUploadingField(null);
+      setUploadingKey(null);
     }
   }
 
-  function setValue(fieldId: string, next: FormValue) {
-    setFormValues((prev) => ({ ...prev, [fieldId]: next }));
+  function setValue(key: string, next: FormValue) {
+    setFormValues((prev) => ({ ...prev, [key]: next }));
   }
 
   function requiredMark(level: FieldDefinition["required_level"]) {
@@ -227,125 +271,150 @@ export function RequestForm({
       </div>
 
       {fields.map((f) => {
-        const fieldId = `field-${f.id}`;
-        const v = formValues[f.id];
-        const baseLabel = (
-          <Label htmlFor={fieldId} className="flex items-center">
-            <span>{f.label}</span>
-            {requiredMark(f.required_level)}
-          </Label>
-        );
+        const types = allowedTypes(f);
+        const showSubLabels = types.length > 1;
         return (
           <div key={f.id} className="space-y-2">
-            {baseLabel}
-            {f.field_type === "short_text" && (
-              <Input
-                id={fieldId}
-                value={typeof v === "string" ? v : ""}
-                onChange={(e) => setValue(f.id, e.target.value)}
-              />
-            )}
-            {f.field_type === "long_text" && (
-              <Textarea
-                id={fieldId}
-                value={typeof v === "string" ? v : ""}
-                onChange={(e) => setValue(f.id, e.target.value)}
-                rows={4}
-              />
-            )}
-            {f.field_type === "url" && (
-              <Input
-                id={fieldId}
-                type="url"
-                value={typeof v === "string" ? v : ""}
-                onChange={(e) => setValue(f.id, e.target.value)}
-                placeholder="https://"
-              />
-            )}
-            {f.field_type === "select" && (
-              <Select
-                value={typeof v === "string" && v.length > 0 ? v : undefined}
-                onValueChange={(val) => setValue(f.id, val)}
-              >
-                <SelectTrigger id={fieldId}>
-                  <SelectValue placeholder="Select an option" />
-                </SelectTrigger>
-                <SelectContent>
-                  {(f.options ?? []).map((opt) => (
-                    <SelectItem key={opt} value={opt}>
-                      {opt}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-            {f.field_type === "multi_select" && (
-              <div className="space-y-2">
-                {(f.options ?? []).length === 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    No options configured.
-                  </p>
-                )}
-                {(f.options ?? []).map((opt) => {
-                  const selected = Array.isArray(v) ? v : [];
-                  const checked = selected.includes(opt);
-                  const optId = `${fieldId}-${opt}`;
-                  return (
-                    <div key={opt} className="flex items-center gap-2">
-                      <Checkbox
-                        id={optId}
-                        checked={checked}
-                        onCheckedChange={(next) => {
-                          const isOn = next === true;
-                          const without = selected.filter((s) => s !== opt);
-                          setValue(f.id, isOn ? [...without, opt] : without);
-                        }}
-                      />
-                      <Label htmlFor={optId} className="text-sm font-normal">
-                        {opt}
+            <Label className="flex items-center">
+              <span>{f.label}</span>
+              {requiredMark(f.required_level)}
+            </Label>
+            <div className="space-y-3">
+              {types.map((t) => {
+                const k = fieldKey(f.id, t);
+                const v = formValues[k];
+                const inputId = `field-${f.id}-${t}`;
+                return (
+                  <div key={k} className="space-y-1.5">
+                    {showSubLabels && (
+                      <Label
+                        htmlFor={inputId}
+                        className="text-xs font-normal text-muted-foreground"
+                      >
+                        {TYPE_CAPTIONS[t]}
                       </Label>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            {f.field_type === "checkbox" && (
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  id={fieldId}
-                  checked={v === true}
-                  onCheckedChange={(checked) =>
-                    setValue(f.id, checked === true)
-                  }
-                />
-                <Label htmlFor={fieldId} className="text-sm font-normal">
-                  Yes
-                </Label>
-              </div>
-            )}
-            {(f.field_type === "file" || f.field_type === "image") && (
-              <div className="space-y-1.5">
-                <input
-                  id={fieldId}
-                  type="file"
-                  accept={f.field_type === "image" ? "image/*" : undefined}
-                  onChange={(e) => {
-                    const file = e.target.files?.[0] ?? null;
-                    void onFileChange(f, file);
-                  }}
-                  disabled={uploadingField === f.id}
-                  className="block w-full text-sm file:mr-3 file:rounded-md file:border file:border-input file:bg-background file:px-3 file:py-1.5 file:text-sm file:font-medium hover:file:bg-accent"
-                />
-                {uploadingField === f.id && (
-                  <p className="text-xs text-muted-foreground">Uploading…</p>
-                )}
-                {filePaths[f.id] && uploadingField !== f.id && (
-                  <p className="text-xs text-muted-foreground break-all">
-                    Current: {filePaths[f.id]?.split("/").pop()}
-                  </p>
-                )}
-              </div>
-            )}
+                    )}
+                    {t === "short_text" && (
+                      <Input
+                        id={inputId}
+                        value={typeof v === "string" ? v : ""}
+                        onChange={(e) => setValue(k, e.target.value)}
+                      />
+                    )}
+                    {t === "long_text" && (
+                      <Textarea
+                        id={inputId}
+                        value={typeof v === "string" ? v : ""}
+                        onChange={(e) => setValue(k, e.target.value)}
+                        rows={4}
+                      />
+                    )}
+                    {t === "url" && (
+                      <Input
+                        id={inputId}
+                        type="url"
+                        value={typeof v === "string" ? v : ""}
+                        onChange={(e) => setValue(k, e.target.value)}
+                        placeholder="https://"
+                      />
+                    )}
+                    {t === "select" && (
+                      <Select
+                        value={
+                          typeof v === "string" && v.length > 0 ? v : undefined
+                        }
+                        onValueChange={(val) => setValue(k, val)}
+                      >
+                        <SelectTrigger id={inputId}>
+                          <SelectValue placeholder="Select an option" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(f.options ?? []).map((opt) => (
+                            <SelectItem key={opt} value={opt}>
+                              {opt}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                    {t === "multi_select" && (
+                      <div className="space-y-2">
+                        {(f.options ?? []).length === 0 && (
+                          <p className="text-xs text-muted-foreground">
+                            No options configured.
+                          </p>
+                        )}
+                        {(f.options ?? []).map((opt) => {
+                          const selected = Array.isArray(v) ? v : [];
+                          const checked = selected.includes(opt);
+                          const optId = `${inputId}-${opt}`;
+                          return (
+                            <div key={opt} className="flex items-center gap-2">
+                              <Checkbox
+                                id={optId}
+                                checked={checked}
+                                onCheckedChange={(next) => {
+                                  const isOn = next === true;
+                                  const without = selected.filter(
+                                    (s) => s !== opt
+                                  );
+                                  setValue(k, isOn ? [...without, opt] : without);
+                                }}
+                              />
+                              <Label
+                                htmlFor={optId}
+                                className="text-sm font-normal"
+                              >
+                                {opt}
+                              </Label>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {t === "checkbox" && (
+                      <div className="flex items-center gap-2">
+                        <Checkbox
+                          id={inputId}
+                          checked={v === true}
+                          onCheckedChange={(checked) =>
+                            setValue(k, checked === true)
+                          }
+                        />
+                        <Label htmlFor={inputId} className="text-sm font-normal">
+                          Yes
+                        </Label>
+                      </div>
+                    )}
+                    {(t === "file" || t === "image") && (
+                      <div className="space-y-1.5">
+                        <input
+                          id={inputId}
+                          type="file"
+                          accept={t === "image" ? "image/*" : undefined}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0] ?? null;
+                            void onFileChange(f, t, file);
+                          }}
+                          disabled={uploadingKey === k}
+                          className="block w-full text-sm file:mr-3 file:rounded-md file:border file:border-input file:bg-background file:px-3 file:py-1.5 file:text-sm file:font-medium hover:file:bg-accent"
+                        />
+                        {uploadingKey === k && (
+                          <p className="text-xs text-muted-foreground">
+                            Uploading…
+                          </p>
+                        )}
+                        {filePaths[k] && uploadingKey !== k && (
+                          <p className="text-xs text-muted-foreground break-all">
+                            Current: {filePaths[k]?.split("/").pop()}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
             {f.help_text && (
               <p className="text-xs text-muted-foreground">{f.help_text}</p>
             )}

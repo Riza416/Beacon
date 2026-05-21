@@ -18,10 +18,28 @@ import { formatDate } from "@/lib/utils";
 import type {
   Comment,
   FieldDefinition,
+  FieldType,
   FieldValue,
   RequestRow,
   Status,
 } from "@/lib/types";
+
+const TYPE_CAPTIONS: Record<FieldType, string> = {
+  short_text: "Short answer",
+  long_text: "Detailed answer",
+  url: "Link",
+  file: "File",
+  image: "Screenshot",
+  select: "Pick one",
+  multi_select: "Pick several",
+  checkbox: "Yes / no",
+};
+
+function allowedTypes(f: FieldDefinition): FieldType[] {
+  return f.field_types && f.field_types.length > 0
+    ? f.field_types
+    : [f.field_type];
+}
 
 export const dynamic = "force-dynamic";
 
@@ -94,8 +112,14 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
     }
   }
 
-  const valuesByField = new Map<string, FieldValue>();
-  for (const v of values ?? []) valuesByField.set(v.field_definition_id, v);
+  // Group values by field_definition_id; each field may have several values
+  // (one per allowed type).
+  const valuesByField = new Map<string, FieldValue[]>();
+  for (const v of values ?? []) {
+    const list = valuesByField.get(v.field_definition_id);
+    if (list) list.push(v);
+    else valuesByField.set(v.field_definition_id, [v]);
+  }
 
   let statuses: Status[] = [];
   if (isAdmin) {
@@ -193,15 +217,57 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
             </p>
           )}
           {(fields ?? []).map((f) => {
-            const v = valuesByField.get(f.id);
+            const types = allowedTypes(f);
+            const activeSet = new Set(types);
+            const stored = valuesByField.get(f.id) ?? [];
+            const byType = new Map<FieldType, FieldValue>();
+            for (const v of stored) byType.set(v.field_type, v);
+            // Render in the field's configured order, then append any
+            // "legacy" types still in the DB whose checkbox was un-ticked
+            // since the value was collected.
+            const legacyTypes = stored
+              .map((v) => v.field_type)
+              .filter((t) => !activeSet.has(t));
+            const showSubLabels = types.length > 1 || legacyTypes.length > 0;
             return (
               <div key={f.id} className="space-y-1">
                 <div className="text-sm font-medium">{f.label}</div>
-                <FieldValueRenderer
-                  field={f}
-                  value={v}
-                  signedUrls={signedUrls}
-                />
+                <div className="space-y-2">
+                  {types.map((t) => {
+                    const v = byType.get(t);
+                    return (
+                      <div key={t} className="space-y-1">
+                        {showSubLabels && (
+                          <div className="text-xs text-muted-foreground">
+                            {TYPE_CAPTIONS[t]}
+                          </div>
+                        )}
+                        <FieldValueRenderer
+                          field={f}
+                          displayType={t}
+                          value={v}
+                          signedUrls={signedUrls}
+                        />
+                      </div>
+                    );
+                  })}
+                  {legacyTypes.map((t) => {
+                    const v = byType.get(t);
+                    return (
+                      <div key={`legacy-${t}`} className="space-y-1 opacity-70">
+                        <div className="text-xs text-muted-foreground italic">
+                          Legacy (was: {TYPE_CAPTIONS[t]})
+                        </div>
+                        <FieldValueRenderer
+                          field={f}
+                          displayType={t}
+                          value={v}
+                          signedUrls={signedUrls}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             );
           })}
@@ -245,18 +311,19 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
 }
 
 function FieldValueRenderer({
-  field,
+  displayType,
   value,
   signedUrls,
 }: {
   field: FieldDefinition;
+  displayType: FieldType;
   value: FieldValue | undefined;
   signedUrls: Map<string, string>;
 }) {
   if (!value) {
     return <p className="text-sm text-muted-foreground">—</p>;
   }
-  switch (field.field_type) {
+  switch (displayType) {
     case "short_text":
     case "select": {
       if (!value.value_text)
@@ -326,7 +393,7 @@ function FieldValueRenderer({
             {filename} (link unavailable)
           </p>
         );
-      if (field.field_type === "image") {
+      if (displayType === "image") {
         return (
           <div className="space-y-2">
             <div className="overflow-hidden rounded-md border inline-block">

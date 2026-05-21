@@ -21,6 +21,7 @@ const FIELD_TYPE_LABELS: Record<string, string> = {
   file: "File",
   image: "Image",
   select: "Select",
+  multi_select: "Multi-select",
   checkbox: "Checkbox",
 };
 
@@ -83,7 +84,16 @@ export default async function AdminRequirementsPage() {
                     </TableCell>
                     <TableCell className="font-medium">{field.label}</TableCell>
                     <TableCell className="text-muted-foreground">
-                      {FIELD_TYPE_LABELS[field.field_type] ?? field.field_type}
+                      <div className="flex flex-wrap gap-1">
+                        {(field.field_types && field.field_types.length > 0
+                          ? field.field_types
+                          : [field.field_type]
+                        ).map((t) => (
+                          <Badge key={t} variant="outline" className="text-xs">
+                            {FIELD_TYPE_LABELS[t] ?? t}
+                          </Badge>
+                        ))}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <Badge variant={requiredLevelVariant(field.required_level)}>

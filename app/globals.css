@@ -21,7 +21,7 @@
   --color-popover: hsl(var(--popover));
   --color-popover-foreground: hsl(var(--popover-foreground));
 
-  --radius: 0.5rem;
+  --radius: 0.625rem;
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
   --radius-sm: calc(var(--radius) - 4px);
@@ -30,36 +30,99 @@
   --font-mono: var(--font-geist-mono);
 }
 
+/*
+ * Beacon — dark futuristic theme.
+ * Deep near-black background with subtle violet undertone, bright violet
+ * primary, generous contrast on text so long-form reading stays comfortable.
+ */
 :root {
-  --background: 0 0% 100%;
-  --foreground: 222.2 84% 4.9%;
-  --card: 0 0% 100%;
-  --card-foreground: 222.2 84% 4.9%;
-  --popover: 0 0% 100%;
-  --popover-foreground: 222.2 84% 4.9%;
-  --primary: 222.2 47.4% 11.2%;
-  --primary-foreground: 210 40% 98%;
-  --secondary: 210 40% 96.1%;
-  --secondary-foreground: 222.2 47.4% 11.2%;
-  --muted: 210 40% 96.1%;
-  --muted-foreground: 215.4 16.3% 46.9%;
-  --accent: 210 40% 96.1%;
-  --accent-foreground: 222.2 47.4% 11.2%;
-  --destructive: 0 84.2% 60.2%;
-  --destructive-foreground: 210 40% 98%;
-  --border: 214.3 31.8% 91.4%;
-  --input: 214.3 31.8% 91.4%;
-  --ring: 222.2 84% 4.9%;
+  color-scheme: dark;
+
+  --background: 260 25% 5%;
+  --foreground: 240 10% 96%;
+
+  --card: 260 22% 8%;
+  --card-foreground: 240 10% 96%;
+
+  --popover: 260 22% 9%;
+  --popover-foreground: 240 10% 96%;
+
+  --primary: 270 90% 66%;
+  --primary-foreground: 260 25% 6%;
+
+  --secondary: 258 15% 14%;
+  --secondary-foreground: 240 10% 94%;
+
+  --muted: 258 14% 12%;
+  --muted-foreground: 245 10% 68%;
+
+  --accent: 270 60% 22%;
+  --accent-foreground: 270 80% 90%;
+
+  --destructive: 350 80% 60%;
+  --destructive-foreground: 240 10% 98%;
+
+  --border: 258 14% 18%;
+  --input: 258 14% 14%;
+  --ring: 270 90% 66%;
 }
 
 @layer base {
   * {
     border-color: hsl(var(--border));
   }
+
+  html,
   body {
     background-color: hsl(var(--background));
     color: hsl(var(--foreground));
+  }
+
+  body {
     font-family: var(--font-sans), ui-sans-serif, system-ui, -apple-system,
       "Segoe UI", Roboto, sans-serif;
+    /* A subtle violet glow behind everything, fading down — gives the
+       "futuristic" hint without hurting text readability. */
+    background-image:
+      radial-gradient(
+        ellipse 80% 50% at 50% -20%,
+        hsl(270 90% 30% / 0.18),
+        transparent 60%
+      ),
+      radial-gradient(
+        ellipse 60% 40% at 100% 0%,
+        hsl(290 80% 35% / 0.10),
+        transparent 60%
+      );
+    background-attachment: fixed;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Selection: violet highlight on light text */
+  ::selection {
+    background-color: hsl(270 90% 66% / 0.35);
+    color: hsl(240 10% 98%);
+  }
+
+  /* Reading body copy: tighten leading slightly on small text, give
+     larger headings a little more weight. */
+  h1,
+  h2,
+  h3 {
+    letter-spacing: -0.01em;
+  }
+
+  /* Make focus rings clearly violet so the user can always tell where
+     keyboard focus is. */
+  :focus-visible {
+    outline-color: hsl(var(--ring));
+  }
+
+  /* Inputs/textareas inherit the muted dark surface so they don't shout. */
+  input,
+  textarea,
+  select {
+    color-scheme: dark;
   }
 }

@@ -4,8 +4,49 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { authedAction, adminAction } from "@/lib/actions/utils";
-import type { FieldDefinition, FieldValue, RequestRow } from "@/lib/types";
+import type {
+  FieldDefinition,
+  FieldType,
+  FieldValue,
+  RequestRow,
+} from "@/lib/types";
 import type { SubmitResult } from "@/lib/request-actions-types";
+
+const VALID_FIELD_TYPES: FieldType[] = [
+  "short_text",
+  "long_text",
+  "url",
+  "file",
+  "image",
+  "select",
+  "multi_select",
+  "checkbox",
+];
+
+function isFieldType(s: string): s is FieldType {
+  return (VALID_FIELD_TYPES as string[]).includes(s);
+}
+
+function allowedTypes(f: FieldDefinition): FieldType[] {
+  return f.field_types && f.field_types.length > 0
+    ? f.field_types
+    : [f.field_type];
+}
+
+/**
+ * Form state keys are now `${field_id}::${type}`. Returns null if the key is
+ * malformed or the type is unknown.
+ */
+function parseValueKey(
+  key: string
+): { fieldId: string; type: FieldType } | null {
+  const idx = key.indexOf("::");
+  if (idx < 0) return null;
+  const fieldId = key.slice(0, idx);
+  const type = key.slice(idx + 2);
+  if (!fieldId || !isFieldType(type)) return null;
+  return { fieldId, type };
+}
 
 type FormValues = Record<string, string | boolean>;
 
@@ -128,31 +169,53 @@ async function persistFormState(
 
   if (!fields || fields.length === 0) return;
 
-  const rows = fields
-    .map((f) => {
-      const raw = parsed.values[f.id];
-      if (raw === undefined) return null;
-      let value_text: string | null = null;
-      if (f.field_type === "checkbox") {
-        value_text = (raw === true || raw === "true") ? "true" : "false";
-      } else if (typeof raw === "string") {
-        const trimmed = raw.trim();
-        value_text = trimmed.length === 0 ? null : trimmed;
-      }
-      // File / image: ignore here — file_path is updated via setFieldFile.
-      if (f.field_type === "file" || f.field_type === "image") return null;
-      return {
-        request_id: requestId,
-        field_definition_id: f.id,
-        value_text,
-      };
-    })
-    .filter((r): r is NonNullable<typeof r> => r !== null);
+  // Index field defs by id and capture the set of currently-allowed types per
+  // field. Anything submitted for a type not in this set is dropped (the form
+  // shouldn't be sending it anyway).
+  const allowedByField = new Map<string, Set<FieldType>>();
+  for (const f of fields) {
+    allowedByField.set(f.id, new Set(allowedTypes(f)));
+  }
+
+  const rows: {
+    request_id: string;
+    field_definition_id: string;
+    field_type: FieldType;
+    value_text: string | null;
+  }[] = [];
+
+  for (const [key, raw] of Object.entries(parsed.values)) {
+    const parsedKey = parseValueKey(key);
+    if (!parsedKey) continue;
+    const { fieldId, type } = parsedKey;
+    const allowed = allowedByField.get(fieldId);
+    if (!allowed || !allowed.has(type)) continue;
+
+    // File / image: ignore here — file_path is updated via setFieldFile.
+    if (type === "file" || type === "image") continue;
+
+    let value_text: string | null = null;
+    if (type === "checkbox") {
+      value_text = raw === true || raw === "true" ? "true" : "false";
+    } else if (typeof raw === "string") {
+      const trimmed = raw.trim();
+      value_text = trimmed.length === 0 ? null : trimmed;
+    }
+
+    rows.push({
+      request_id: requestId,
+      field_definition_id: fieldId,
+      field_type: type,
+      value_text,
+    });
+  }
 
   if (rows.length > 0) {
     const { error: upErr } = await supabase
       .from("request_field_values")
-      .upsert(rows, { onConflict: "request_id,field_definition_id" });
+      .upsert(rows, {
+        onConflict: "request_id,field_definition_id,field_type",
+      });
     if (upErr) throw new Error(upErr.message);
   }
 }
@@ -205,20 +268,22 @@ export async function submitRequest(
     .returns<FieldValue[]>();
   if (fvErr) throw new Error(fvErr.message);
 
-  const byField = new Map<string, FieldValue>();
-  for (const v of values ?? []) byField.set(v.field_definition_id, v);
+  // Index by (field_id, type) — one row per type the admin enabled.
+  const byFieldType = new Map<string, FieldValue>();
+  for (const v of values ?? []) {
+    byFieldType.set(`${v.field_definition_id}::${v.field_type}`, v);
+  }
 
-  function isFilled(f: FieldDefinition): boolean {
-    const v = byField.get(f.id);
+  function isFilledForType(type: FieldType, v: FieldValue | undefined): boolean {
     if (!v) return false;
-    if (f.field_type === "file" || f.field_type === "image") {
+    if (type === "file" || type === "image") {
       return Boolean(v.file_path && v.file_path.length > 0);
     }
-    if (f.field_type === "checkbox") {
+    if (type === "checkbox") {
       // Checkbox "required" means it must be checked.
       return v.value_text === "true";
     }
-    if (f.field_type === "multi_select") {
+    if (type === "multi_select") {
       // Multi-select is filled if at least one option is selected.
       if (!v.value_text) return false;
       try {
@@ -229,6 +294,17 @@ export async function submitRequest(
       }
     }
     return Boolean(v.value_text && v.value_text.trim().length > 0);
+  }
+
+  function isFilled(f: FieldDefinition): boolean {
+    // A field with multiple allowed types counts as filled as soon as ANY
+    // of its sub-inputs has a value. The user picks whichever way they want
+    // to provide the answer (screenshot OR file OR url, etc.).
+    for (const type of allowedTypes(f)) {
+      const v = byFieldType.get(`${f.id}::${type}`);
+      if (isFilledForType(type, v)) return true;
+    }
+    return false;
   }
 
   const hardMissing = (fields ?? [])
@@ -263,8 +339,12 @@ export async function submitRequest(
 export async function setFieldFile(
   requestId: string,
   fieldId: string,
+  fieldType: FieldType,
   filePath: string | null
 ): Promise<{ ok: true }> {
+  if (!isFieldType(fieldType)) {
+    throw new Error("Invalid field type");
+  }
   const ctx = await authedAction();
   await assertEditable(requestId, ctx);
   const { supabase } = ctx;
@@ -275,9 +355,10 @@ export async function setFieldFile(
       {
         request_id: requestId,
         field_definition_id: fieldId,
+        field_type: fieldType,
         file_path: filePath,
       },
-      { onConflict: "request_id,field_definition_id" }
+      { onConflict: "request_id,field_definition_id,field_type" }
     );
   if (error) throw new Error(error.message);
 
