@@ -3,8 +3,6 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ChevronUp, ChevronDown } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -15,7 +13,6 @@ import {
 } from "@/components/ui/select";
 import {
   updateRequestStatus,
-  reorderTeamPriority,
   setTeamPriority,
 } from "@/app/(app)/requests/actions";
 import type { Status } from "@/lib/types";
@@ -26,9 +23,6 @@ interface DashboardRowControlsProps {
   /** The request's raw team_priority value (admin-visible numeric). */
   currentPriority: number;
   statuses: Status[];
-  /** Disable the up/down buttons when this row is at the top/bottom of its group. */
-  isFirstInTeam: boolean;
-  isLastInTeam: boolean;
 }
 
 export function DashboardRowControls({
@@ -36,8 +30,6 @@ export function DashboardRowControls({
   currentStatusId,
   currentPriority,
   statuses,
-  isFirstInTeam,
-  isLastInTeam,
 }: DashboardRowControlsProps) {
   const router = useRouter();
   const [pending, startTransition] = React.useTransition();
@@ -50,17 +42,6 @@ export function DashboardRowControls({
   React.useEffect(() => {
     setPriorityDraft(String(currentPriority));
   }, [currentPriority]);
-
-  function move(direction: "up" | "down") {
-    startTransition(async () => {
-      try {
-        await reorderTeamPriority(requestId, direction);
-        router.refresh();
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Could not reorder");
-      }
-    });
-  }
 
   function commitPriority(rawValue: string) {
     const parsed = Number.parseInt(rawValue, 10);
@@ -101,27 +82,7 @@ export function DashboardRowControls({
   }
 
   return (
-    <div className="flex items-center gap-1">
-      <Button
-        variant="ghost"
-        size="icon"
-        className="h-7 w-7"
-        onClick={() => move("up")}
-        disabled={pending || isFirstInTeam}
-        aria-label="Move up"
-      >
-        <ChevronUp className="h-4 w-4" />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="h-7 w-7"
-        onClick={() => move("down")}
-        disabled={pending || isLastInTeam}
-        aria-label="Move down"
-      >
-        <ChevronDown className="h-4 w-4" />
-      </Button>
+    <div className="flex items-center gap-2">
       <Input
         type="number"
         min={0}

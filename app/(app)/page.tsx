@@ -309,8 +309,6 @@ async function Dashboard({
                             row={r}
                             statuses={statuses ?? []}
                             position={idx + 1}
-                            isFirstInTeam={idx === 0}
-                            isLastInTeam={idx === rows.length - 1}
                             isAdmin={isAdmin}
                           />
                         ))}
@@ -443,8 +441,6 @@ function RequestList({
               row={r}
               statuses={statuses}
               position={showPosition ? idx + 1 : undefined}
-              isFirstInTeam={idx === 0}
-              isLastInTeam={idx === rows.length - 1}
               compact={compact}
               hideControls={hideControls}
               isAdmin={isAdmin}
@@ -460,8 +456,6 @@ function RequestRowItem({
   row: r,
   statuses,
   position,
-  isFirstInTeam,
-  isLastInTeam,
   compact = false,
   hideControls = false,
   isAdmin,
@@ -469,8 +463,6 @@ function RequestRowItem({
   row: RequestRowJoined;
   statuses: Status[];
   position?: number;
-  isFirstInTeam: boolean;
-  isLastInTeam: boolean;
   compact?: boolean;
   hideControls?: boolean;
   isAdmin: boolean;
@@ -529,8 +521,6 @@ function RequestRowItem({
           currentStatusId={r.status_id}
           currentPriority={r.team_priority}
           statuses={statuses}
-          isFirstInTeam={isFirstInTeam}
-          isLastInTeam={isLastInTeam}
         />
       )}
     </li>
