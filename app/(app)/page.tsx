@@ -292,29 +292,66 @@ async function Dashboard({
           <div className="space-y-6">
             {orderedKeys.map((productId) => {
               const rows = byProduct.get(productId) ?? [];
+
+              // Within a product, further group by team. Inside each team
+              // sub-group, the rows are ordered by team_priority asc
+              // (already the base query's ordering).
+              const byTeamWithin = new Map<string | null, RequestRowJoined[]>();
+              for (const r of rows) {
+                const tk = r.team_id ?? null;
+                const arr = byTeamWithin.get(tk) ?? [];
+                arr.push(r);
+                byTeamWithin.set(tk, arr);
+              }
+              const teamKeys: (string | null)[] = [];
+              for (const t of teams ?? []) {
+                if (byTeamWithin.has(t.id)) teamKeys.push(t.id);
+              }
+              if (byTeamWithin.has(null)) teamKeys.push(null);
+              const teamName = (id: string | null) =>
+                id === null
+                  ? "Unassigned"
+                  : (teams ?? []).find((t) => t.id === id)?.name ??
+                    "Unknown team";
+
               return (
-                <div key={productId ?? "no-product"} className="space-y-2">
-                  <h3 className="text-sm font-medium text-muted-foreground">
+                <div key={productId ?? "no-product"} className="space-y-3">
+                  <h3 className="text-base font-medium">
                     {productName(productId)}{" "}
-                    <span className="text-xs text-muted-foreground/70">
+                    <span className="text-xs font-normal text-muted-foreground/70">
                       ({rows.length})
                     </span>
                   </h3>
-                  <Card>
-                    <CardContent className="p-0">
-                      <ul className="divide-y">
-                        {rows.map((r, idx) => (
-                          <RequestRowItem
-                            key={r.id}
-                            row={r}
-                            statuses={statuses ?? []}
-                            position={idx + 1}
-                            isAdmin={isAdmin}
-                          />
-                        ))}
-                      </ul>
-                    </CardContent>
-                  </Card>
+                  <div className="space-y-3">
+                    {teamKeys.map((teamId) => {
+                      const teamRows = byTeamWithin.get(teamId) ?? [];
+                      return (
+                        <div
+                          key={teamId ?? "unassigned-team"}
+                          className="space-y-2"
+                        >
+                          <h4 className="text-xs uppercase tracking-wide text-muted-foreground">
+                            {teamName(teamId)}
+                          </h4>
+                          <Card>
+                            <CardContent className="p-0">
+                              <ul className="divide-y">
+                                {teamRows.map((r, idx) => (
+                                  <RequestRowItem
+                                    key={r.id}
+                                    row={r}
+                                    statuses={statuses ?? []}
+                                    position={idx + 1}
+                                    isAdmin={isAdmin}
+                                  />
+                                ))}
+                              </ul>
+                            </CardContent>
+                          </Card>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               );
             })}
