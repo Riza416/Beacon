@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
+import { signUpAndConfirm } from "@/app/login/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -29,7 +30,6 @@ function LoginForm() {
   const [password, setPassword] = useState("");
   const [mode, setMode] = useState<Mode>("signin-password");
   const [magicSent, setMagicSent] = useState(false);
-  const [signupSent, setSignupSent] = useState(false);
   const [loading, setLoading] = useState(false);
 
   // Defensive: if Supabase ever sends a magic-link code to /login instead
@@ -91,29 +91,30 @@ function LoginForm() {
       return;
     }
     setLoading(true);
+
+    // Server-side: create the user pre-confirmed (skips the verification email).
+    const result = await signUpAndConfirm(email, password);
+    if (!result.ok) {
+      setLoading(false);
+      toast.error(result.error);
+      return;
+    }
+
+    // Now sign in immediately so the session cookies land in this browser.
     const supabase = createClient();
-    const site = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
-    const { data, error } = await supabase.auth.signUp({
+    const { error: signInErr } = await supabase.auth.signInWithPassword({
       email,
       password,
-      options: {
-        emailRedirectTo: `${site}/auth/callback?next=${encodeURIComponent(next)}`,
-      },
     });
     setLoading(false);
-    if (error) {
-      toast.error(error.message);
+    if (signInErr) {
+      toast.error(
+        `Account created, but sign-in failed: ${signInErr.message}. Try signing in manually.`
+      );
       return;
     }
-    // If email confirmation is disabled in Supabase, the user is logged in
-    // immediately and a session is returned. Otherwise they need to click
-    // the verification link in their inbox first.
-    if (data.session) {
-      toast.success("Account created — you're in.");
-      window.location.replace(next);
-      return;
-    }
-    setSignupSent(true);
+    toast.success("Account created — you're in.");
+    window.location.replace(next);
   }
 
   return (
@@ -219,11 +220,6 @@ function LoginForm() {
               {loading ? "Signing in..." : "Sign in"}
             </Button>
           </form>
-        ) : signupSent ? (
-          <p className="text-sm text-muted-foreground">
-            Check <span className="font-medium">{email}</span> for a verification
-            link, then sign in.
-          </p>
         ) : (
           <form onSubmit={onSignup} className="space-y-4">
             <div className="space-y-2">
@@ -264,10 +260,7 @@ function LoginForm() {
               Already have an account?{" "}
               <button
                 type="button"
-                onClick={() => {
-                  setMode("signin-password");
-                  setSignupSent(false);
-                }}
+                onClick={() => setMode("signin-password")}
                 className="font-medium text-primary hover:underline"
               >
                 Sign in
