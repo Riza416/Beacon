@@ -744,6 +744,64 @@ export async function markTagsViewed(
   return { ok: true };
 }
 
+/**
+ * Resequence every request in `teamId` (or the null-team group) so that the
+ * target request lands at `targetIndex`. Priorities become a dense 0..N-1
+ * sequence with no duplicates. Other rows shift up or down to make room.
+ *
+ * If `teamId` is null we just write the bare target value — the null-team
+ * group is a catch-all that doesn't have meaningful per-team ordering.
+ */
+async function resequenceTeamPriorities(
+  supabase: Awaited<ReturnType<typeof adminAction>>["supabase"],
+  teamId: string | null,
+  requestId: string,
+  targetIndex: number
+): Promise<void> {
+  if (!teamId) {
+    const { error } = await supabase
+      .from("requests")
+      .update({ team_priority: Math.max(0, targetIndex) })
+      .eq("id", requestId);
+    if (error) throw new Error(error.message);
+    return;
+  }
+
+  const { data: rows, error: listErr } = await supabase
+    .from("requests")
+    .select("id, team_priority, updated_at")
+    .eq("team_id", teamId)
+    .order("team_priority", { ascending: true })
+    .order("updated_at", { ascending: false })
+    .returns<{ id: string; team_priority: number; updated_at: string }[]>();
+  if (listErr) throw new Error(listErr.message);
+  if (!rows || rows.length === 0) return;
+
+  const others = rows.filter((r) => r.id !== requestId);
+  const targetRow =
+    rows.find((r) => r.id === requestId) ??
+    ({ id: requestId, team_priority: -1, updated_at: "" } as const);
+
+  const clamped = Math.max(0, Math.min(targetIndex, others.length));
+  const ordered: { id: string; team_priority: number }[] = [
+    ...others.slice(0, clamped),
+    targetRow,
+    ...others.slice(clamped),
+  ];
+
+  // Bulk-write the new priorities. To avoid the (unlikely) intermediate
+  // unique-value collision we don't have a unique constraint, so a plain
+  // sequence of updates is fine.
+  for (let i = 0; i < ordered.length; i++) {
+    if (ordered[i].team_priority === i) continue; // already correct
+    const { error: updErr } = await supabase
+      .from("requests")
+      .update({ team_priority: i })
+      .eq("id", ordered[i].id);
+    if (updErr) throw new Error(updErr.message);
+  }
+}
+
 export async function setTeamPriority(
   requestId: string,
   value: number
@@ -752,11 +810,22 @@ export async function setTeamPriority(
   if (!Number.isFinite(value) || value < 0 || value > 1_000_000) {
     throw new Error("Priority must be a positive number");
   }
-  const { error } = await supabase
+
+  const { data: current, error: curErr } = await supabase
     .from("requests")
-    .update({ team_priority: Math.round(value) })
-    .eq("id", requestId);
-  if (error) throw new Error(error.message);
+    .select("id, team_id")
+    .eq("id", requestId)
+    .maybeSingle<{ id: string; team_id: string | null }>();
+  if (curErr) throw new Error(curErr.message);
+  if (!current) throw new Error("Request not found");
+
+  await resequenceTeamPriorities(
+    supabase,
+    current.team_id,
+    requestId,
+    Math.round(value)
+  );
+
   revalidatePath("/");
   return { ok: true };
 }
@@ -767,70 +836,30 @@ export async function reorderTeamPriority(
 ): Promise<{ ok: true }> {
   const { supabase } = await adminAction();
 
-  // The dashboard now groups by PRODUCT, so the up/down arrows need to
-  // reorder within that group, not within the legacy team grouping. The
-  // column is still called `team_priority` (didn't bother renaming) but
-  // its semantics are now "priority within the current dashboard group".
+  // Priority is scoped to the request's team. The dashboard may *display*
+  // requests grouped by product, but the underlying ordering and uniqueness
+  // semantics live at the team level.
   const { data: current, error: curErr } = await supabase
     .from("requests")
-    .select("id, product_id, team_priority")
+    .select("id, team_id, team_priority")
     .eq("id", requestId)
     .maybeSingle<{
       id: string;
-      product_id: string | null;
+      team_id: string | null;
       team_priority: number;
     }>();
   if (curErr) throw new Error(curErr.message);
   if (!current) throw new Error("Request not found");
 
-  // Build the product-scoped list to find the right neighbor.
-  let listQuery = supabase
-    .from("requests")
-    .select("id, team_priority, updated_at")
-    .order("team_priority", { ascending: true })
-    .order("updated_at", { ascending: false });
+  const delta = direction === "up" ? -1 : 1;
+  const target = Math.max(0, current.team_priority + delta);
 
-  listQuery = current.product_id
-    ? listQuery.eq("product_id", current.product_id)
-    : listQuery.is("product_id", null);
-
-  const { data: list, error: listErr } = await listQuery.returns<
-    { id: string; team_priority: number; updated_at: string }[]
-  >();
-  if (listErr) throw new Error(listErr.message);
-  if (!list) return { ok: true };
-
-  const idx = list.findIndex((r) => r.id === requestId);
-  if (idx < 0) return { ok: true };
-  const neighborIdx = direction === "up" ? idx - 1 : idx + 1;
-  if (neighborIdx < 0 || neighborIdx >= list.length) return { ok: true };
-
-  const cur = list[idx];
-  const nei = list[neighborIdx];
-
-  let curNew = nei.team_priority;
-  let neiNew = cur.team_priority;
-  if (cur.team_priority === nei.team_priority) {
-    if (direction === "up") {
-      curNew = nei.team_priority - 1;
-      neiNew = nei.team_priority;
-    } else {
-      curNew = nei.team_priority + 1;
-      neiNew = nei.team_priority;
-    }
-  }
-
-  const { error: e1 } = await supabase
-    .from("requests")
-    .update({ team_priority: curNew })
-    .eq("id", cur.id);
-  if (e1) throw new Error(e1.message);
-
-  const { error: e2 } = await supabase
-    .from("requests")
-    .update({ team_priority: neiNew })
-    .eq("id", nei.id);
-  if (e2) throw new Error(e2.message);
+  await resequenceTeamPriorities(
+    supabase,
+    current.team_id,
+    requestId,
+    target
+  );
 
   revalidatePath("/");
   return { ok: true };
