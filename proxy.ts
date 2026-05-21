@@ -1,17 +1,18 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { type NextRequest } from "next/server";
+import { updateSession } from "@/lib/supabase/middleware";
 
-// Stub: proves whether the proxy itself runs cleanly on Vercel.
-// If this still 500s, the problem is the proxy convention / runtime, not Supabase.
-// If pages load, the Supabase/cookie code is what was crashing — we'll re-add it
-// piece by piece. Auth gating is still enforced server-side in app/(app)/layout.tsx
-// via requireProfile(), so this is safe as a diagnostic step.
 export async function proxy(request: NextRequest) {
-  console.log("[beacon] proxy hit:", request.nextUrl.pathname);
-  return NextResponse.next({ request });
+  return await updateSession(request);
 }
 
 export const config = {
   matcher: [
+    /*
+     * Match all request paths except for the ones starting with:
+     * - _next/static (static files)
+     * - _next/image  (image optimization)
+     * - favicon.ico, public assets
+     */
     "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };
