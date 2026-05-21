@@ -4,9 +4,6 @@ import { createClient } from "@/lib/supabase/server";
 import {
   Card,
   CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -50,12 +47,9 @@ export default async function DashboardPage({
   searchParams,
 }: DashboardPageProps) {
   const profile = await requireProfile();
-  const isAdmin = profile.role === "admin";
   const search = await searchParams;
-
-  if (!isAdmin) return <UserDashboard profile={profile} />;
   return (
-    <AdminDashboard
+    <Dashboard
       profile={profile}
       teamFilter={search.team ?? ALL}
       statusFilter={search.status ?? ALL}
@@ -65,10 +59,12 @@ export default async function DashboardPage({
 }
 
 // ---------------------------------------------------------------------------
-// ADMIN DASHBOARD
+// Unified dashboard — everyone sees all requests, grouped by team and ordered
+// by team_priority within each team. Admins additionally get inline controls
+// (status select + ↑/↓ team-priority arrows) on each row.
 // ---------------------------------------------------------------------------
 
-async function AdminDashboard({
+async function Dashboard({
   profile,
   teamFilter,
   statusFilter,
@@ -80,6 +76,7 @@ async function AdminDashboard({
   authorFilter: string;
 }) {
   const supabase = await createClient();
+  const isAdmin = profile.role === "admin";
 
   const [{ data: statuses }, { data: teams }, { data: allAuthors }] =
     await Promise.all([
@@ -99,7 +96,6 @@ async function AdminDashboard({
         .returns<{ id: string; full_name: string | null; email: string | null }[]>(),
     ]);
 
-  // Build base query, apply filters server-side.
   let baseQuery = supabase
     .from("requests")
     .select(
@@ -130,8 +126,7 @@ async function AdminDashboard({
     .order("updated_at", { ascending: false })
     .returns<RequestRowJoined[]>();
 
-  // Status count cards reflect the filtered set so admins can see "for this
-  // team / author, how many are In Progress?"
+  // Status count cards reflect the filtered set.
   const counts = new Map<string, number>();
   for (const r of requests ?? []) {
     const key = r.status?.label ?? "Unassigned";
@@ -143,15 +138,8 @@ async function AdminDashboard({
     (r) => r.state === "submitted" && !r.status_id
   );
 
-  // Recently updated: last 10.
-  const recentlyUpdated = [...(requests ?? [])]
-    .sort(
-      (a, b) =>
-        new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-    )
-    .slice(0, 10);
-
-  // Group by team (existing behavior).
+  // Group by team. The query is already ordered by team_priority ascending so
+  // each group preserves its priority order.
   const byTeam = new Map<string | null, RequestRowJoined[]>();
   for (const r of requests ?? []) {
     const key = r.team_id ?? null;
@@ -169,13 +157,13 @@ async function AdminDashboard({
       ? "Unassigned"
       : (teams ?? []).find((t) => t.id === id)?.name ?? "Unknown team";
 
-  // Tagged-for-me + recent comments — admin sees them too, in case they
-  // are tagged personally.
+  // Tagged-for-me + recent comments are personal sections — they always show
+  // when the current user has something there, regardless of role.
   const taggedForMe = await fetchTaggedForMe(profile);
   const recentCommentsOnMine = await fetchRecentCommentsOnMyRequests(profile.id);
 
-  // Filter chip author dropdown — keep it short by listing authors who
-  // actually have at least one request right now.
+  // Author dropdown keeps it short — only authors who currently have at least
+  // one matching request.
   const authorIdsWithRequests = new Set(
     (requests ?? []).map((r) => r.author_id)
   );
@@ -196,7 +184,11 @@ async function AdminDashboard({
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
           <p className="text-sm text-muted-foreground">
-            Everything in motion. Reorder team priority and set status inline.
+            Every request across the org, grouped by team and ordered by team
+            priority.{" "}
+            {isAdmin
+              ? "Use the row controls to reorder priority and set status inline."
+              : "Admins triage status and priority."}
           </p>
         </div>
         <Button asChild>
@@ -238,13 +230,22 @@ async function AdminDashboard({
           title="Awaiting triage"
           description="Submitted requests that haven't been given a status yet."
         >
-          <RequestList rows={awaitingTriage} statuses={statuses ?? []} />
+          <RequestList
+            rows={awaitingTriage}
+            statuses={statuses ?? []}
+            isAdmin={isAdmin}
+          />
         </SectionCard>
       )}
 
       <section className="space-y-3">
         <div className="flex items-end justify-between gap-3">
-          <h2 className="text-lg font-medium">By team</h2>
+          <div>
+            <h2 className="text-lg font-medium">All requests by team</h2>
+            <p className="text-xs text-muted-foreground">
+              Sorted by team priority within each group.
+            </p>
+          </div>
           {hasFilters && (
             <p className="text-xs text-muted-foreground">
               Filtered ({requests?.length ?? 0} matching)
@@ -275,168 +276,7 @@ async function AdminDashboard({
                             statuses={statuses ?? []}
                             isFirstInTeam={idx === 0}
                             isLastInTeam={idx === rows.length - 1}
-                          />
-                        ))}
-                      </ul>
-                    </CardContent>
-                  </Card>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
-
-      {recentlyUpdated.length > 0 && (
-        <SectionCard
-          title="Recently updated"
-          description="Last 10 across the filtered set."
-        >
-          <RequestList rows={recentlyUpdated} statuses={statuses ?? []} compact />
-        </SectionCard>
-      )}
-
-      {taggedForMe.length > 0 && (
-        <SectionCard
-          title="Tagged for your feedback"
-          description="Requests where you (or your team) were tagged."
-        >
-          <RequestList
-            rows={taggedForMe}
-            statuses={statuses ?? []}
-            compact
-            hideControls
-          />
-        </SectionCard>
-      )}
-
-      {recentCommentsOnMine.length > 0 && (
-        <SectionCard
-          title="Recent comments on your requests"
-          description="Newest comments first."
-        >
-          <ul className="space-y-2">
-            {recentCommentsOnMine.map((c) => (
-              <li
-                key={c.comment_id}
-                className="rounded-md border bg-muted/20 p-3 text-sm"
-              >
-                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                  <span>{c.author_label}</span>
-                  <span>·</span>
-                  <Link
-                    className="hover:underline"
-                    href={`/requests/${c.request_id}`}
-                  >
-                    {c.request_title}
-                  </Link>
-                  <span>·</span>
-                  <span>{formatDate(c.created_at)}</span>
-                </div>
-                <p className="mt-1 line-clamp-2">{c.body}</p>
-              </li>
-            ))}
-          </ul>
-        </SectionCard>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// USER DASHBOARD
-// ---------------------------------------------------------------------------
-
-async function UserDashboard({ profile }: { profile: Profile }) {
-  const supabase = await createClient();
-
-  const [{ data: statuses }, { data: mine }] = await Promise.all([
-    supabase
-      .from("statuses")
-      .select("*")
-      .order("display_order")
-      .returns<Status[]>(),
-    supabase
-      .from("requests")
-      .select(
-        "id, title, summary, state, priority, team_priority, team_id, status_id, submitted_at, updated_at, notion_url, author_id, " +
-          "status:statuses(id, label, color), " +
-          "team:teams(id, name), " +
-          "author:profiles!requests_author_id_fkey(full_name, email)"
-      )
-      .eq("author_id", profile.id)
-      .order("priority", { ascending: true })
-      .order("updated_at", { ascending: false })
-      .returns<RequestRowJoined[]>(),
-  ]);
-
-  // Group my requests by status.
-  const byStatus = new Map<string, RequestRowJoined[]>();
-  for (const r of mine ?? []) {
-    const key = r.status?.label ?? "Unassigned";
-    const arr = byStatus.get(key) ?? [];
-    arr.push(r);
-    byStatus.set(key, arr);
-  }
-  const statusOrder = [
-    ...(statuses ?? []).map((s) => s.label),
-    ...(byStatus.has("Unassigned") ? ["Unassigned"] : []),
-  ];
-
-  const taggedForMe = await fetchTaggedForMe(profile);
-  const recentCommentsOnMine = await fetchRecentCommentsOnMyRequests(profile.id);
-
-  return (
-    <div className="space-y-8">
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">
-            Things in motion: your requests, what owes you feedback, and what
-            people are saying.
-          </p>
-        </div>
-        <Button asChild>
-          <Link href="/requests/new">New request</Link>
-        </Button>
-      </header>
-
-      <section className="space-y-3">
-        <h2 className="text-lg font-medium">Your requests by status</h2>
-        {(mine ?? []).length === 0 ? (
-          <Card>
-            <CardContent className="p-8 text-center text-sm text-muted-foreground">
-              You haven&apos;t created a request yet.{" "}
-              <Link className="underline" href="/requests/new">
-                Create one
-              </Link>
-              .
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="space-y-4">
-            {statusOrder.map((label) => {
-              const rows = byStatus.get(label);
-              if (!rows || rows.length === 0) return null;
-              return (
-                <div key={label} className="space-y-2">
-                  <h3 className="text-sm font-medium text-muted-foreground">
-                    {label}{" "}
-                    <span className="text-xs text-muted-foreground/70">
-                      ({rows.length})
-                    </span>
-                  </h3>
-                  <Card>
-                    <CardContent className="p-0">
-                      <ul className="divide-y">
-                        {rows.map((r) => (
-                          <RequestRowItem
-                            key={r.id}
-                            row={r}
-                            statuses={statuses ?? []}
-                            isFirstInTeam={true}
-                            isLastInTeam={true}
-                            hideControls
+                            isAdmin={isAdmin}
                           />
                         ))}
                       </ul>
@@ -458,6 +298,7 @@ async function UserDashboard({ profile }: { profile: Profile }) {
             rows={taggedForMe}
             statuses={statuses ?? []}
             compact
+            isAdmin={isAdmin}
             hideControls
           />
         </SectionCard>
@@ -497,7 +338,7 @@ async function UserDashboard({ profile }: { profile: Profile }) {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers and shared row components
+// Shared row + section components
 // ---------------------------------------------------------------------------
 
 function SectionCard({
@@ -547,11 +388,13 @@ function RequestList({
   statuses,
   compact = false,
   hideControls = false,
+  isAdmin,
 }: {
   rows: RequestRowJoined[];
   statuses: Status[];
   compact?: boolean;
   hideControls?: boolean;
+  isAdmin: boolean;
 }) {
   return (
     <Card>
@@ -566,6 +409,7 @@ function RequestList({
               isLastInTeam={idx === rows.length - 1}
               compact={compact}
               hideControls={hideControls}
+              isAdmin={isAdmin}
             />
           ))}
         </ul>
@@ -581,6 +425,7 @@ function RequestRowItem({
   isLastInTeam,
   compact = false,
   hideControls = false,
+  isAdmin,
 }: {
   row: RequestRowJoined;
   statuses: Status[];
@@ -588,7 +433,9 @@ function RequestRowItem({
   isLastInTeam: boolean;
   compact?: boolean;
   hideControls?: boolean;
+  isAdmin: boolean;
 }) {
+  const showControls = isAdmin && !hideControls;
   return (
     <li
       className={`flex flex-wrap items-center gap-3 ${compact ? "p-3" : "p-4"}`}
@@ -627,7 +474,7 @@ function RequestRowItem({
           {formatDate(r.updated_at)}
         </p>
       </div>
-      {!hideControls && (
+      {showControls && (
         <DashboardRowControls
           requestId={r.id}
           currentStatusId={r.status_id}
@@ -641,7 +488,7 @@ function RequestRowItem({
 }
 
 // ---------------------------------------------------------------------------
-// Data fetchers shared by both dashboards
+// Data fetchers
 // ---------------------------------------------------------------------------
 
 async function fetchTaggedForMe(
@@ -649,14 +496,12 @@ async function fetchTaggedForMe(
 ): Promise<RequestRowJoined[]> {
   const supabase = await createClient();
 
-  // Direct collaborator tags
   const { data: directRows } = await supabase
     .from("request_collaborators")
     .select("request_id")
     .eq("user_id", profile.id)
     .returns<{ request_id: string }[]>();
 
-  // Team tags (only when I have a team)
   let teamTaggedIds: string[] = [];
   if (profile.team_id) {
     const { data: teamRows } = await supabase
@@ -688,7 +533,6 @@ async function fetchTaggedForMe(
     .order("updated_at", { ascending: false })
     .returns<RequestRowJoined[]>();
 
-  // Filter out requests where I'm the author — no point flagging myself.
   return (requests ?? []).filter((r) => r.author_id !== profile.id);
 }
 
@@ -706,7 +550,6 @@ async function fetchRecentCommentsOnMyRequests(
 ): Promise<RecentComment[]> {
   const supabase = await createClient();
 
-  // Find my requests' ids first
   const { data: myRequestRows } = await supabase
     .from("requests")
     .select("id, title")
@@ -718,7 +561,6 @@ async function fetchRecentCommentsOnMyRequests(
   const titleById = new Map<string, string>();
   for (const r of myRequestRows ?? []) titleById.set(r.id, r.title);
 
-  // Pull recent comments by anyone other than me on my requests
   const { data: comments } = await supabase
     .from("comments")
     .select(
