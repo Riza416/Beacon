@@ -13,23 +13,46 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { deleteStatus, moveStatus } from "../actions";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  deleteStatus,
+  mergeAndDeleteStatus,
+  moveStatus,
+} from "../actions";
 
 interface StatusRowActionsProps {
   statusId: string;
   statusLabel: string;
+  usageCount: number;
+  otherStatuses: { id: string; label: string }[];
   isFirst: boolean;
   isLast: boolean;
 }
 
+const UNASSIGN_VALUE = "__unassigned__";
+
 export function StatusRowActions({
   statusId,
   statusLabel,
+  usageCount,
+  otherStatuses,
   isFirst,
   isLast,
 }: StatusRowActionsProps) {
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [mergeTarget, setMergeTarget] = useState<string>(
+    otherStatuses[0]?.id ?? UNASSIGN_VALUE
+  );
   const [isPending, startTransition] = useTransition();
+
+  const inUse = usageCount > 0;
 
   function move(direction: "up" | "down") {
     const fd = new FormData();
@@ -45,16 +68,32 @@ export function StatusRowActions({
     });
   }
 
-  function onDelete() {
-    const fd = new FormData();
-    fd.set("id", statusId);
+  function onConfirm() {
     startTransition(async () => {
       try {
-        await deleteStatus(fd);
-        toast.success("Status deleted");
+        if (inUse) {
+          const fd = new FormData();
+          fd.set("from_id", statusId);
+          fd.set(
+            "into_id",
+            mergeTarget === UNASSIGN_VALUE ? "" : mergeTarget
+          );
+          await mergeAndDeleteStatus(fd);
+          toast.success(
+            mergeTarget === UNASSIGN_VALUE
+              ? "Status removed; requests are now unassigned"
+              : "Status merged"
+          );
+        } else {
+          const fd = new FormData();
+          fd.set("id", statusId);
+          await deleteStatus(fd);
+          toast.success("Status deleted");
+        }
         setConfirmOpen(false);
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Failed to delete status";
+        const message =
+          err instanceof Error ? err.message : "Failed to delete status";
         toast.error(message);
       }
     });
@@ -88,18 +127,60 @@ export function StatusRowActions({
         </DialogTrigger>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete status</DialogTitle>
+            <DialogTitle>
+              {inUse ? "Merge & delete status" : "Delete status"}
+            </DialogTitle>
             <DialogDescription>
-              Delete &ldquo;{statusLabel}&rdquo;? Requests currently assigned to it
-              will lose their status.
+              {inUse ? (
+                <>
+                  &ldquo;{statusLabel}&rdquo; is currently assigned to{" "}
+                  <strong>
+                    {usageCount} {usageCount === 1 ? "request" : "requests"}
+                  </strong>
+                  . Pick a status to move them to before deleting.
+                </>
+              ) : (
+                <>
+                  Delete &ldquo;{statusLabel}&rdquo;? It&apos;s not in use, so
+                  no requests are affected.
+                </>
+              )}
             </DialogDescription>
           </DialogHeader>
+          {inUse && (
+            <div className="space-y-2 pt-2">
+              <Label>Move affected requests to</Label>
+              <Select value={mergeTarget} onValueChange={setMergeTarget}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {otherStatuses.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.label}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value={UNASSIGN_VALUE}>
+                    Leave unassigned
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmOpen(false)}>
               Cancel
             </Button>
-            <Button variant="destructive" onClick={onDelete} disabled={isPending}>
-              {isPending ? "Deleting..." : "Delete"}
+            <Button
+              variant="destructive"
+              onClick={onConfirm}
+              disabled={isPending}
+            >
+              {isPending
+                ? "Working…"
+                : inUse
+                  ? "Merge & delete"
+                  : "Delete"}
             </Button>
           </DialogFooter>
         </DialogContent>

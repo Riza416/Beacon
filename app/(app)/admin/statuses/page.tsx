@@ -22,6 +22,17 @@ export default async function AdminStatusesPage() {
     .order("display_order", { ascending: true })
     .returns<Status[]>();
 
+  // Per-status usage counts so the row knows whether to ask for merge or just delete.
+  const { data: usageRows } = await supabase
+    .from("requests")
+    .select("status_id")
+    .not("status_id", "is", null)
+    .returns<{ status_id: string }[]>();
+  const usageByStatus = new Map<string, number>();
+  for (const r of usageRows ?? []) {
+    usageByStatus.set(r.status_id, (usageByStatus.get(r.status_id) ?? 0) + 1);
+  }
+
   return (
     <div className="space-y-8">
       <header className="flex flex-wrap items-end justify-between gap-4">
@@ -97,6 +108,10 @@ export default async function AdminStatusesPage() {
                         <StatusRowActions
                           statusId={status.id}
                           statusLabel={status.label}
+                          usageCount={usageByStatus.get(status.id) ?? 0}
+                          otherStatuses={statuses
+                            .filter((s) => s.id !== status.id)
+                            .map((s) => ({ id: s.id, label: s.label }))}
                           isFirst={idx === 0}
                           isLast={idx === statuses.length - 1}
                         />

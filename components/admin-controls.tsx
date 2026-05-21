@@ -52,7 +52,9 @@ export function AdminControls({
   const [statusId, setStatusId] = React.useState<string>(currentStatusId ?? "");
   const [notion, setNotion] = React.useState<string>(currentNotionUrl ?? "");
   const [confirmOpen, setConfirmOpen] = React.useState(false);
+  const [confirmText, setConfirmText] = React.useState("");
   const [pending, startTransition] = React.useTransition();
+  const confirmReady = confirmText.trim().toUpperCase() === "DELETE";
 
   function onChangeStatus(next: string) {
     if (next === statusId) return;
@@ -156,15 +158,35 @@ export function AdminControls({
         </div>
       </CardContent>
 
-      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+      <Dialog
+        open={confirmOpen}
+        onOpenChange={(open) => {
+          setConfirmOpen(open);
+          if (!open) setConfirmText("");
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete this request?</DialogTitle>
             <DialogDescription>
               This cannot be undone. The request, its field values, and any
-              comments will be removed.
+              comments will be removed. Type <strong>DELETE</strong> to
+              confirm.
             </DialogDescription>
           </DialogHeader>
+          <div className="space-y-2 pt-2">
+            <Label htmlFor="confirm-delete" className="sr-only">
+              Type DELETE
+            </Label>
+            <Input
+              id="confirm-delete"
+              autoFocus
+              value={confirmText}
+              onChange={(e) => setConfirmText(e.target.value)}
+              placeholder="DELETE"
+              autoComplete="off"
+            />
+          </div>
           <DialogFooter className="gap-2">
             <Button
               variant="outline"
@@ -176,7 +198,7 @@ export function AdminControls({
             <Button
               variant="destructive"
               onClick={onDelete}
-              disabled={pending}
+              disabled={pending || !confirmReady}
             >
               {pending ? "Deleting…" : "Delete"}
             </Button>

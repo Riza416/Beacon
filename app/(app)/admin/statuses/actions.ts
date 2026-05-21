@@ -76,6 +76,32 @@ export async function deleteStatus(formData: FormData) {
   revalidatePath("/admin/statuses");
 }
 
+export async function mergeAndDeleteStatus(formData: FormData) {
+  const { supabase } = await adminAction();
+  const fromId = String(formData.get("from_id") ?? "");
+  const intoIdRaw = String(formData.get("into_id") ?? "").trim();
+  const intoId = intoIdRaw === "" ? null : intoIdRaw;
+
+  if (!fromId) throw new Error("Status to delete required");
+  if (intoId === fromId) throw new Error("Cannot merge a status into itself");
+
+  // Reassign every request currently on `from` to `into` (or null).
+  const { error: reErr } = await supabase
+    .from("requests")
+    .update({ status_id: intoId })
+    .eq("status_id", fromId);
+  if (reErr) throw new Error(reErr.message);
+
+  const { error: delErr } = await supabase
+    .from("statuses")
+    .delete()
+    .eq("id", fromId);
+  if (delErr) throw new Error(delErr.message);
+
+  revalidatePath("/admin/statuses");
+  revalidatePath("/");
+}
+
 export async function moveStatus(formData: FormData) {
   const { supabase } = await adminAction();
   const id = String(formData.get("id") ?? "");
