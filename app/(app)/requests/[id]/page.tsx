@@ -37,7 +37,7 @@ const TYPE_CAPTIONS: Record<FieldType, string> = {
   url: "Link",
   file: "File",
   image: "Screenshot",
-  select: "Pick one",
+  select: "",
   multi_select: "Pick several",
   checkbox: "Yes / no",
 };

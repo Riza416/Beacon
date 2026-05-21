@@ -62,7 +62,7 @@ const TYPE_CAPTIONS: Record<FieldType, string> = {
   url: "Link",
   file: "File",
   image: "Screenshot",
-  select: "Pick one",
+  select: "",
   multi_select: "Pick several",
   checkbox: "Yes / no",
 };
@@ -329,7 +329,7 @@ export function RequestForm({
                 const inputId = `field-${f.id}-${t}`;
                 return (
                   <div key={k} className="space-y-1.5">
-                    {showSubLabels && (
+                    {showSubLabels && TYPE_CAPTIONS[t] && (
                       <Label
                         htmlFor={inputId}
                         className="text-xs font-normal text-muted-foreground"

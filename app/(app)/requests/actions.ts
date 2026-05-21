@@ -750,24 +750,32 @@ export async function reorderTeamPriority(
 ): Promise<{ ok: true }> {
   const { supabase } = await adminAction();
 
+  // The dashboard now groups by PRODUCT, so the up/down arrows need to
+  // reorder within that group, not within the legacy team grouping. The
+  // column is still called `team_priority` (didn't bother renaming) but
+  // its semantics are now "priority within the current dashboard group".
   const { data: current, error: curErr } = await supabase
     .from("requests")
-    .select("id, team_id, team_priority")
+    .select("id, product_id, team_priority")
     .eq("id", requestId)
-    .maybeSingle<{ id: string; team_id: string | null; team_priority: number }>();
+    .maybeSingle<{
+      id: string;
+      product_id: string | null;
+      team_priority: number;
+    }>();
   if (curErr) throw new Error(curErr.message);
   if (!current) throw new Error("Request not found");
 
-  // Build the team-scoped list to find the right neighbor.
+  // Build the product-scoped list to find the right neighbor.
   let listQuery = supabase
     .from("requests")
     .select("id, team_priority, updated_at")
     .order("team_priority", { ascending: true })
     .order("updated_at", { ascending: false });
 
-  listQuery = current.team_id
-    ? listQuery.eq("team_id", current.team_id)
-    : listQuery.is("team_id", null);
+  listQuery = current.product_id
+    ? listQuery.eq("product_id", current.product_id)
+    : listQuery.is("product_id", null);
 
   const { data: list, error: listErr } = await listQuery.returns<
     { id: string; team_priority: number; updated_at: string }[]
