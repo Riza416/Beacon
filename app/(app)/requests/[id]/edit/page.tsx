@@ -36,11 +36,9 @@ export default async function EditRequestPage({ params }: EditPageProps) {
   const isAuthor = request.author_id === profile.id;
   const isDraft = request.state === "draft";
 
-  // If not editable, send the user to the detail page.
-  if (!isDraft && !isAdmin) {
-    redirect(`/requests/${id}`);
-  }
-  if (isDraft && !isAuthor && !isAdmin) {
+  // Authors can edit their own requests in any state; admins can edit anything.
+  // Anyone else lands on the read-only detail page.
+  if (!isAuthor && !isAdmin) {
     redirect(`/requests/${id}`);
   }
 
@@ -79,12 +77,14 @@ export default async function EditRequestPage({ params }: EditPageProps) {
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">
-            {isDraft ? "Edit draft" : "Edit request"}
+            {isDraft ? "Edit draft" : "Edit submitted request"}
           </h1>
           <p className="text-sm text-muted-foreground">
             {isDraft
               ? "Save as you go. Submit when you're ready for the product team to look."
-              : "Admin edit mode."}
+              : isAuthor
+                ? "Update your submitted request. Changes save in place; status doesn't change."
+                : "Admin edit mode."}
           </p>
         </div>
         <Button asChild variant="ghost">

@@ -231,9 +231,9 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
             </>
           )}
           {!isDraft && (isAuthor || isAdmin) && (
-            <Button asChild variant="ghost">
+            <Button asChild variant="outline">
               <Link href={`/requests/${id}/edit`}>
-                {isAdmin ? "Edit (admin)" : "View edit"}
+                {isAdmin && !isAuthor ? "Edit (admin)" : "Edit"}
               </Link>
             </Button>
           )}

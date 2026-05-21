@@ -102,8 +102,10 @@ async function assertEditable(
   if (error) throw new Error(error.message);
   if (!data) throw new Error("Request not found");
   const isAdmin = profile.role === "admin";
-  const isAuthorDraft = data.author_id === profile.id && data.state === "draft";
-  if (!isAdmin && !isAuthorDraft) {
+  const isAuthor = data.author_id === profile.id;
+  // Authors can edit their own requests in any state (draft or submitted).
+  // Admins can edit anything. Everyone else is read-only.
+  if (!isAdmin && !isAuthor) {
     throw new Error("You can't edit this request.");
   }
   return data;

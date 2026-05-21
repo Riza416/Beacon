@@ -101,7 +101,7 @@ async function Dashboard({
     .select(
       "id, title, summary, state, priority, team_priority, team_id, status_id, submitted_at, updated_at, notion_url, author_id, " +
         "status:statuses(id, label, color), " +
-        "team:teams(id, name), " +
+        "team:teams!requests_team_id_fkey(id, name), " +
         "author:profiles!requests_author_id_fkey(full_name, email)"
     );
 
@@ -526,7 +526,7 @@ async function fetchTaggedForMe(
     .select(
       "id, title, summary, state, priority, team_priority, team_id, status_id, submitted_at, updated_at, notion_url, author_id, " +
         "status:statuses(id, label, color), " +
-        "team:teams(id, name), " +
+        "team:teams!requests_team_id_fkey(id, name), " +
         "author:profiles!requests_author_id_fkey(full_name, email)"
     )
     .in("id", ids)
