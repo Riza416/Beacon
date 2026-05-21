@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getCurrentProfile } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { BeaconLogo } from "@/components/logo";
 
 export default async function Nav() {
   const profile = await getCurrentProfile();
@@ -13,8 +14,8 @@ export default async function Nav() {
     <header className="border-b bg-background">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
         <div className="flex items-center gap-6">
-          <Link href="/" className="font-semibold tracking-tight">
-            Beacon
+          <Link href="/" aria-label="Beacon — home">
+            <BeaconLogo size={20} />
           </Link>
           <nav className="hidden gap-4 text-sm sm:flex">
             <Link href="/" className="text-muted-foreground hover:text-foreground">

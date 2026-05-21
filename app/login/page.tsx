@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { BeaconLogo } from "@/components/logo";
 
 function LoginForm() {
   const search = useSearchParams();
@@ -38,7 +39,9 @@ function LoginForm() {
   return (
     <Card className="w-full max-w-sm">
       <CardHeader>
-        <CardTitle>Beacon</CardTitle>
+        <CardTitle>
+          <BeaconLogo size={28} />
+        </CardTitle>
         <CardDescription>
           Sign in with a magic link to your work email.
         </CardDescription>
