@@ -367,7 +367,7 @@ export function RequestForm({
                         placeholder="https://"
                       />
                     )}
-                    {t === "select" && (
+                    {t === "select" && (f.options ?? []).length > 0 && (
                       <Select
                         value={
                           typeof v === "string" && v.length > 0 ? v : undefined
