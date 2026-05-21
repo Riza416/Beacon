@@ -42,6 +42,7 @@ interface DashboardPageProps {
     team?: string;
     status?: string;
     author?: string;
+    product?: string;
   }>;
 }
 
@@ -56,6 +57,7 @@ export default async function DashboardPage({
       teamFilter={search.team ?? ALL}
       statusFilter={search.status ?? ALL}
       authorFilter={search.author ?? ALL}
+      productFilter={search.product ?? ALL}
     />
   );
 }
@@ -71,11 +73,13 @@ async function Dashboard({
   teamFilter,
   statusFilter,
   authorFilter,
+  productFilter,
 }: {
   profile: Profile;
   teamFilter: string;
   statusFilter: string;
   authorFilter: string;
+  productFilter: string;
 }) {
   const supabase = await createClient();
   const isAdmin = profile.role === "admin";
@@ -131,6 +135,12 @@ async function Dashboard({
   }
   if (authorFilter !== ALL) {
     baseQuery = baseQuery.eq("author_id", authorFilter);
+  }
+  if (productFilter !== ALL) {
+    baseQuery =
+      productFilter === UNASSIGNED
+        ? baseQuery.is("product_id", null)
+        : baseQuery.eq("product_id", productFilter);
   }
 
   const { data: rawRequests } = await baseQuery
@@ -206,7 +216,10 @@ async function Dashboard({
     .sort((a, b) => a.label.localeCompare(b.label));
 
   const hasFilters =
-    teamFilter !== ALL || statusFilter !== ALL || authorFilter !== ALL;
+    teamFilter !== ALL ||
+    statusFilter !== ALL ||
+    authorFilter !== ALL ||
+    productFilter !== ALL;
 
   return (
     <div className="space-y-8">
@@ -234,6 +247,7 @@ async function Dashboard({
           color: s.color,
         }))}
         authors={authorOptions}
+        products={products ?? []}
       />
 
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">

@@ -15,6 +15,7 @@ interface DashboardFiltersProps {
   teams: { id: string; name: string }[];
   statuses: { id: string; label: string; color: string }[];
   authors: { id: string; label: string }[];
+  products: { id: string; name: string }[];
 }
 
 const ALL = "__all__";
@@ -24,6 +25,7 @@ export function DashboardFilters({
   teams,
   statuses,
   authors,
+  products,
 }: DashboardFiltersProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -32,7 +34,9 @@ export function DashboardFilters({
   const team = search.get("team") ?? ALL;
   const status = search.get("status") ?? ALL;
   const author = search.get("author") ?? ALL;
-  const hasAny = team !== ALL || status !== ALL || author !== ALL;
+  const product = search.get("product") ?? ALL;
+  const hasAny =
+    team !== ALL || status !== ALL || author !== ALL || product !== ALL;
 
   function update(key: string, value: string) {
     const params = new URLSearchParams(search.toString());
@@ -51,6 +55,25 @@ export function DashboardFilters({
       <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
         Filter
       </span>
+
+      <Select value={product} onValueChange={(v) => update("product", v)}>
+        <SelectTrigger className="h-8 w-[170px] text-xs">
+          <SelectValue placeholder="Product" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={ALL} className="text-xs">
+            All products
+          </SelectItem>
+          {products.map((p) => (
+            <SelectItem key={p.id} value={p.id} className="text-xs">
+              {p.name}
+            </SelectItem>
+          ))}
+          <SelectItem value={UNASSIGNED} className="text-xs">
+            No product
+          </SelectItem>
+        </SelectContent>
+      </Select>
 
       <Select value={team} onValueChange={(v) => update("team", v)}>
         <SelectTrigger className="h-8 w-[160px] text-xs">
