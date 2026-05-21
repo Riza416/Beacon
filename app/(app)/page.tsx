@@ -322,42 +322,35 @@ async function Dashboard({
             {orderedKeys.map((productId) => {
               const rows = byProduct.get(productId) ?? [];
 
-              // Within a product, further group by team. Inside each team
-              // sub-group, the rows are ordered by team_priority asc
-              // (already the base query's ordering).
-              const byTeamWithin = new Map<string | null, RequestRowJoined[]>();
+              // Each team's section lists every request the team is on:
+              // requests it authored AND requests where it's tagged as an
+              // interdependent team. The same request appears under every
+              // team it touches. Dependency rows get a small "Dep" badge so
+              // the relationship is still legible.
+              const byTeamWithin = new Map<
+                string | null,
+                { row: RequestRowJoined; isDependency: boolean }[]
+              >();
               for (const r of rows) {
-                const tk = r.team_id ?? null;
-                const arr = byTeamWithin.get(tk) ?? [];
-                arr.push(r);
-                byTeamWithin.set(tk, arr);
-              }
-
-              // Build per-team "dependency" lists: requests where this team
-              // is tagged (request_team_tags) but isn't the author's team.
-              // Only requests in the current product group are eligible.
-              const productRequestIds = new Set(rows.map((r) => r.id));
-              const dependenciesWithin = new Map<string, RequestRowJoined[]>();
-              for (const r of rows) {
-                if (!productRequestIds.has(r.id)) continue;
+                // Author's team — the main owner.
+                const ownerKey = r.team_id ?? null;
+                const ownerArr = byTeamWithin.get(ownerKey) ?? [];
+                ownerArr.push({ row: r, isDependency: false });
+                byTeamWithin.set(ownerKey, ownerArr);
               }
               for (const [teamId, depIds] of dependenciesByTeam.entries()) {
-                const matches = rows.filter(
-                  (r) => depIds.has(r.id) && r.team_id !== teamId
-                );
-                if (matches.length > 0) {
-                  dependenciesWithin.set(teamId, matches);
+                for (const r of rows) {
+                  if (!depIds.has(r.id)) continue;
+                  if (r.team_id === teamId) continue; // already shown as owner
+                  const arr = byTeamWithin.get(teamId) ?? [];
+                  arr.push({ row: r, isDependency: true });
+                  byTeamWithin.set(teamId, arr);
                 }
               }
 
               const teamKeys: (string | null)[] = [];
               for (const t of teams ?? []) {
-                if (
-                  byTeamWithin.has(t.id) ||
-                  dependenciesWithin.has(t.id)
-                ) {
-                  teamKeys.push(t.id);
-                }
+                if (byTeamWithin.has(t.id)) teamKeys.push(t.id);
               }
               if (byTeamWithin.has(null)) teamKeys.push(null);
               const teamName = (id: string | null) =>
@@ -388,45 +381,32 @@ async function Dashboard({
                           <Card>
                             <CardContent className="p-0">
                               <ul className="divide-y">
-                                {teamRows.map((r, idx) => (
-                                  <RequestRowItem
-                                    key={r.id}
-                                    row={r}
-                                    statuses={statuses ?? []}
-                                    position={idx + 1}
-                                    isAdmin={isAdmin}
-                                  />
-                                ))}
+                                {teamRows.map((entry, idx) => {
+                                  // Priority chip only makes sense on rows
+                                  // this team authored; dependency rows have
+                                  // a priority scoped to another team.
+                                  const ownerIdx = teamRows
+                                    .slice(0, idx + 1)
+                                    .filter((e) => !e.isDependency).length;
+                                  return (
+                                    <RequestRowItem
+                                      key={`${entry.isDependency ? "dep-" : ""}${entry.row.id}`}
+                                      row={entry.row}
+                                      statuses={statuses ?? []}
+                                      position={
+                                        entry.isDependency
+                                          ? undefined
+                                          : ownerIdx
+                                      }
+                                      isDependency={entry.isDependency}
+                                      isAdmin={isAdmin}
+                                      hideControls={entry.isDependency}
+                                    />
+                                  );
+                                })}
                               </ul>
                             </CardContent>
                           </Card>
-                          {teamId &&
-                            (dependenciesWithin.get(teamId) ?? []).length >
-                              0 && (
-                              <div className="space-y-1">
-                                <p className="px-1 text-[10px] uppercase tracking-wide text-muted-foreground/70">
-                                  Dependencies on this team
-                                </p>
-                                <Card className="border-dashed">
-                                  <CardContent className="p-0">
-                                    <ul className="divide-y">
-                                      {(
-                                        dependenciesWithin.get(teamId) ?? []
-                                      ).map((r) => (
-                                        <RequestRowItem
-                                          key={`dep-${r.id}`}
-                                          row={r}
-                                          statuses={statuses ?? []}
-                                          compact
-                                          hideControls
-                                          isAdmin={isAdmin}
-                                        />
-                                      ))}
-                                    </ul>
-                                  </CardContent>
-                                </Card>
-                              </div>
-                            )}
                         </div>
                       );
                     })}
@@ -575,6 +555,7 @@ function RequestRowItem({
   compact = false,
   hideControls = false,
   isAdmin,
+  isDependency = false,
 }: {
   row: RequestRowJoined;
   statuses: Status[];
@@ -582,6 +563,7 @@ function RequestRowItem({
   compact?: boolean;
   hideControls?: boolean;
   isAdmin: boolean;
+  isDependency?: boolean;
 }) {
   const showControls = isAdmin && !hideControls;
   return (
@@ -614,6 +596,11 @@ function RequestRowItem({
             </Badge>
           )}
           {r.team && <Badge variant="outline">{r.team.name}</Badge>}
+          {isDependency && (
+            <Badge variant="secondary" title="This team is tagged as a dependency on this request">
+              Dependency
+            </Badge>
+          )}
           {r.notion_url && (
             <a
               href={r.notion_url}

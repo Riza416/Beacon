@@ -285,7 +285,9 @@ export function RequestForm({
     startTransition(async () => {
       try {
         await saveDraft(request.id, buildFormState());
-        toast.success("Draft saved");
+        toast.success(
+          request.state === "draft" ? "Draft saved" : "Request updated"
+        );
         router.refresh();
       } catch (err) {
         const message = err instanceof Error ? err.message : "Could not save";
@@ -687,7 +689,13 @@ export function RequestForm({
 
       <div className="flex flex-wrap items-center gap-2 pt-2">
         <Button onClick={onSave} disabled={isPending} variant="outline">
-          {isPending ? "Saving…" : "Save draft"}
+          {isPending
+            ? request.state === "draft"
+              ? "Saving…"
+              : "Updating…"
+            : request.state === "draft"
+              ? "Save draft"
+              : "Update request"}
         </Button>
         {canSubmit && (
           <Button
