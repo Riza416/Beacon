@@ -13,6 +13,9 @@ import { BeaconLogo } from "@/components/logo";
 function LoginForm() {
   const search = useSearchParams();
   const next = search.get("next") ?? "/";
+  const errorParam = search.get("error");
+  const errorDescParam = search.get("error_description");
+  const errorCodeParam = search.get("error_code");
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -27,6 +30,16 @@ function LoginForm() {
       window.location.replace(target);
     }
   }, [search, next]);
+
+  // Surface auth errors (from the callback redirect or Supabase hash-style
+  // errors) so we stop silently bouncing the user.
+  useEffect(() => {
+    const msg =
+      errorDescParam ?? errorParam ?? errorCodeParam ?? null;
+    if (msg) {
+      toast.error(`Sign-in failed: ${decodeURIComponent(msg)}`);
+    }
+  }, [errorParam, errorDescParam, errorCodeParam]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -58,6 +71,13 @@ function LoginForm() {
         </CardDescription>
       </CardHeader>
       <CardContent>
+        {(errorParam || errorDescParam || errorCodeParam) && (
+          <div className="mb-3 rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
+            {decodeURIComponent(
+              errorDescParam ?? errorParam ?? errorCodeParam ?? ""
+            )}
+          </div>
+        )}
         {sent ? (
           <p className="text-sm text-muted-foreground">
             Check <span className="font-medium">{email}</span> for the sign-in
