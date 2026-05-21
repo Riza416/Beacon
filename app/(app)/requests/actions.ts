@@ -92,8 +92,9 @@ export async function createDraft(): Promise<void> {
     throw new Error(error?.message ?? "Could not create draft");
   }
 
-  revalidatePath("/requests/mine");
-  revalidatePath("/");
+  // No revalidatePath: this runs during the /requests/new page render which
+  // disallows it, and the destination (/edit) and list pages (/requests/mine, /)
+  // are all dynamic — they re-fetch on next navigation anyway.
   redirect(`/requests/${inserted.id}/edit`);
 }
 
