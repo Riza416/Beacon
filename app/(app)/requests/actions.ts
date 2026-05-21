@@ -118,13 +118,43 @@ export async function createDraft(): Promise<void> {
     .eq("is_default", true)
     .maybeSingle<{ id: string }>();
 
+  // Find the next priority slot for this user's list and for the team list
+  // so the new draft appears at the bottom rather than colliding with every
+  // other draft at priority=0.
+  const { data: mineMax } = await supabase
+    .from("requests")
+    .select("priority")
+    .eq("author_id", profile.id)
+    .order("priority", { ascending: false })
+    .limit(1)
+    .maybeSingle<{ priority: number }>();
+  const nextPriority = (mineMax?.priority ?? -1) + 1;
+
+  let nextTeamPriority = 0;
+  if (profile.team_id) {
+    const { data: teamMax } = await supabase
+      .from("requests")
+      .select("team_priority")
+      .eq("team_id", profile.team_id)
+      .order("team_priority", { ascending: false })
+      .limit(1)
+      .maybeSingle<{ team_priority: number }>();
+    nextTeamPriority = (teamMax?.team_priority ?? -1) + 1;
+  }
+
   const { data: inserted, error } = await supabase
     .from("requests")
     .insert({
       title: "Untitled draft",
       author_id: profile.id,
+      // Inherit the author's team so the dashboard groups it under the right
+      // team instead of "Unassigned". Author can have null team_id (e.g. an
+      // admin without a team) — that's allowed; it falls into Unassigned.
+      team_id: profile.team_id,
       state: "draft",
       status_id: defaultStatus?.id ?? null,
+      priority: nextPriority,
+      team_priority: nextTeamPriority,
     })
     .select("id")
     .single<{ id: string }>();
