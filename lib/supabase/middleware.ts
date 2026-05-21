@@ -4,12 +4,21 @@ import { NextResponse, type NextRequest } from "next/server";
 const PUBLIC_PATHS = ["/login", "/auth/callback", "/auth/signout"];
 
 export async function updateSession(request: NextRequest) {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !anon) {
+    console.error(
+      "[beacon] Supabase env missing in middleware",
+      { hasUrl: !!url, hasAnon: !!anon }
+    );
+    // Don't 500 the whole site — let /login render so the user can at least see it.
+    return NextResponse.next({ request });
+  }
+
   let response = NextResponse.next({ request });
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
+  try {
+    const supabase = createServerClient(url, anon, {
       cookies: {
         getAll() {
           return request.cookies.getAll();
@@ -24,22 +33,26 @@ export async function updateSession(request: NextRequest) {
           );
         },
       },
+    });
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    const path = request.nextUrl.pathname;
+    const isPublic = PUBLIC_PATHS.some((p) => path.startsWith(p));
+
+    if (!user && !isPublic) {
+      const redirectUrl = request.nextUrl.clone();
+      redirectUrl.pathname = "/login";
+      redirectUrl.searchParams.set("next", path);
+      return NextResponse.redirect(redirectUrl);
     }
-  );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const path = request.nextUrl.pathname;
-  const isPublic = PUBLIC_PATHS.some((p) => path.startsWith(p));
-
-  if (!user && !isPublic) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/login";
-    url.searchParams.set("next", path);
-    return NextResponse.redirect(url);
+    return response;
+  } catch (err) {
+    console.error("[beacon] middleware error:", err);
+    // Soft-fail so the user can still reach /login. Logs will show the real reason.
+    return NextResponse.next({ request });
   }
-
-  return response;
 }
