@@ -53,6 +53,7 @@ type FormValues = Record<string, string | boolean>;
 interface FormState {
   title: string;
   summary: string;
+  productId: string | null;
   values: FormValues;
 }
 
@@ -86,6 +87,7 @@ const commentSchema = z.object({
 const formStateSchema = z.object({
   title: z.string().max(500),
   summary: z.string().max(20000),
+  productId: z.string().uuid().nullable(),
   values: z.record(z.string(), z.union([z.string(), z.boolean()])),
 });
 
@@ -102,8 +104,10 @@ async function assertEditable(
   if (error) throw new Error(error.message);
   if (!data) throw new Error("Request not found");
   const isAdmin = profile.role === "admin";
-  const isAuthorDraft = data.author_id === profile.id && data.state === "draft";
-  if (!isAdmin && !isAuthorDraft) {
+  const isAuthor = data.author_id === profile.id;
+  // Authors can edit their own requests in any state (draft or submitted).
+  // Admins can edit anything. Everyone else is read-only.
+  if (!isAdmin && !isAuthor) {
     throw new Error("You can't edit this request.");
   }
   return data;
@@ -185,6 +189,7 @@ async function persistFormState(
     .update({
       title,
       summary: summary.length === 0 ? null : summary,
+      product_id: parsed.productId,
     })
     .eq("id", requestId);
   if (reqErr) throw new Error(reqErr.message);
@@ -274,6 +279,16 @@ export async function submitRequest(
   if (req.state !== "draft") {
     // Already submitted — nothing to do.
     return { ok: true };
+  }
+
+  // Hard gate: you cannot submit a request unless you belong to a team.
+  // Admins are also expected to be on a team (so the request shows up under
+  // a team on the dashboard rather than Unassigned). If they're not, point
+  // them at /admin/teams.
+  if (!ctx.profile.team_id) {
+    throw new Error(
+      "You need to be on a team before submitting. Ask an admin to add you (Admins: assign yourself under /admin/teams)."
+    );
   }
 
   // Save first so we validate against the freshest state (when called from
@@ -735,24 +750,32 @@ export async function reorderTeamPriority(
 ): Promise<{ ok: true }> {
   const { supabase } = await adminAction();
 
+  // The dashboard now groups by PRODUCT, so the up/down arrows need to
+  // reorder within that group, not within the legacy team grouping. The
+  // column is still called `team_priority` (didn't bother renaming) but
+  // its semantics are now "priority within the current dashboard group".
   const { data: current, error: curErr } = await supabase
     .from("requests")
-    .select("id, team_id, team_priority")
+    .select("id, product_id, team_priority")
     .eq("id", requestId)
-    .maybeSingle<{ id: string; team_id: string | null; team_priority: number }>();
+    .maybeSingle<{
+      id: string;
+      product_id: string | null;
+      team_priority: number;
+    }>();
   if (curErr) throw new Error(curErr.message);
   if (!current) throw new Error("Request not found");
 
-  // Build the team-scoped list to find the right neighbor.
+  // Build the product-scoped list to find the right neighbor.
   let listQuery = supabase
     .from("requests")
     .select("id, team_priority, updated_at")
     .order("team_priority", { ascending: true })
     .order("updated_at", { ascending: false });
 
-  listQuery = current.team_id
-    ? listQuery.eq("team_id", current.team_id)
-    : listQuery.is("team_id", null);
+  listQuery = current.product_id
+    ? listQuery.eq("product_id", current.product_id)
+    : listQuery.is("product_id", null);
 
   const { data: list, error: listErr } = await listQuery.returns<
     { id: string; team_priority: number; updated_at: string }[]

@@ -37,7 +37,7 @@ const TYPE_CAPTIONS: Record<FieldType, string> = {
   url: "Link",
   file: "File",
   image: "Screenshot",
-  select: "Pick one",
+  select: "",
   multi_select: "Pick several",
   checkbox: "Yes / no",
 };
@@ -60,6 +60,7 @@ type CommentWithAuthor = Comment & {
 
 type RequestWithJoins = RequestRow & {
   status: { id: string; label: string; color: string } | null;
+  product: { id: string; name: string } | null;
   author: { full_name: string | null; email: string | null } | null;
 };
 
@@ -71,7 +72,7 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
   const { data: request } = await supabase
     .from("requests")
     .select(
-      "*, status:statuses(id, label, color), author:profiles!requests_author_id_fkey(full_name, email)"
+      "*, status:statuses(id, label, color), product:products(id, name), author:profiles!requests_author_id_fkey(full_name, email)"
     )
     .eq("id", id)
     .maybeSingle<RequestWithJoins>();
@@ -200,6 +201,9 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
                 {request.status.label}
               </Badge>
             )}
+            {request.product && (
+              <Badge variant="outline">{request.product.name}</Badge>
+            )}
             {request.notion_url && (
               <a
                 href={request.notion_url}
@@ -224,13 +228,16 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
               <Button asChild variant="outline">
                 <Link href={`/requests/${id}/edit`}>Continue editing</Link>
               </Button>
-              <SubmitButton requestId={id} />
+              <SubmitButton
+                requestId={id}
+                canSubmit={Boolean(profile.team_id)}
+              />
             </>
           )}
           {!isDraft && (isAuthor || isAdmin) && (
-            <Button asChild variant="ghost">
+            <Button asChild variant="outline">
               <Link href={`/requests/${id}/edit`}>
-                {isAdmin ? "Edit (admin)" : "View edit"}
+                {isAdmin && !isAuthor ? "Edit (admin)" : "Edit"}
               </Link>
             </Button>
           )}

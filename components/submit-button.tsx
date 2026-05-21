@@ -15,7 +15,13 @@ import {
 import { submitRequest } from "@/app/(app)/requests/actions";
 import type { SubmitResult } from "@/lib/request-actions-types";
 
-export function SubmitButton({ requestId }: { requestId: string }) {
+interface SubmitButtonProps {
+  requestId: string;
+  /** When false, the submit button is disabled with a "join a team first" hint. */
+  canSubmit: boolean;
+}
+
+export function SubmitButton({ requestId, canSubmit }: SubmitButtonProps) {
   const router = useRouter();
   const [pending, startTransition] = React.useTransition();
   const [softModal, setSoftModal] = React.useState<{
@@ -30,7 +36,7 @@ export function SubmitButton({ requestId }: { requestId: string }) {
           force,
         });
         if (result.ok) {
-          toast.success("Request submitted");
+          toast.success("Request submitted — you can still edit anytime");
           setSoftModal({ open: false, missing: [] });
           router.refresh();
           return;
@@ -54,9 +60,24 @@ export function SubmitButton({ requestId }: { requestId: string }) {
 
   return (
     <>
-      <Button onClick={() => doSubmit(false)} disabled={pending}>
-        {pending ? "Submitting…" : "Submit to product team"}
-      </Button>
+      <div className="flex flex-col items-end gap-1">
+        <Button
+          onClick={() => doSubmit(false)}
+          disabled={pending || !canSubmit}
+          title={
+            canSubmit
+              ? undefined
+              : "You need to be on a team before submitting"
+          }
+        >
+          {pending ? "Submitting…" : "Submit to product team"}
+        </Button>
+        {!canSubmit && (
+          <p className="text-xs text-muted-foreground">
+            Join a team to submit. Ask an admin.
+          </p>
+        )}
+      </div>
       <Dialog
         open={softModal.open}
         onOpenChange={(open) => setSoftModal((p) => ({ ...p, open }))}

@@ -1,15 +1,17 @@
 import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { cookies } from "next/headers";
 
 /**
  * Magic-link callback. Exchanges the one-time `code` for a session and sets
- * the session cookies on the redirect response.
+ * the Supabase session cookies on the redirect response.
  *
- * Why not use the shared lib/supabase/server.ts client here: in Next.js
- * App Router route handlers, cookies written via `cookies().set()` are not
- * always attached to a freshly-constructed NextResponse.redirect() response.
- * Writing the Supabase cookies directly on the response we're about to
- * return is the reliable pattern — see Supabase's @supabase/ssr docs.
+ * Reading the inbound cookies via Next.js's `cookies()` keeps the PKCE
+ * `code_verifier` flowing through (it was set client-side when the user
+ * requested the link). Writing the new session cookies directly to the
+ * `response` object is the pattern @supabase/ssr recommends for route
+ * handlers — cookies set on the cookieStore aren't reliably attached to a
+ * NextResponse.redirect() in Next 16.
  */
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
@@ -20,8 +22,7 @@ export async function GET(request: Request) {
     return NextResponse.redirect(`${origin}/login?error=missing_code`);
   }
 
-  // Build the redirect we'll return on success; Supabase will hang the
-  // session cookies on this exact object.
+  const cookieStore = await cookies();
   const response = NextResponse.redirect(`${origin}${next}`);
 
   const supabase = createServerClient(
@@ -30,16 +31,7 @@ export async function GET(request: Request) {
     {
       cookies: {
         getAll() {
-          return request.headers
-            .get("cookie")
-            ?.split(";")
-            .map((c) => c.trim())
-            .filter(Boolean)
-            .map((c) => {
-              const eq = c.indexOf("=");
-              if (eq < 0) return { name: c, value: "" };
-              return { name: c.slice(0, eq), value: decodeURIComponent(c.slice(eq + 1)) };
-            }) ?? [];
+          return cookieStore.getAll();
         },
         setAll(cookiesToSet) {
           for (const { name, value, options } of cookiesToSet) {
@@ -52,6 +44,7 @@ export async function GET(request: Request) {
 
   const { error } = await supabase.auth.exchangeCodeForSession(code);
   if (error) {
+    console.error("[beacon] callback exchange failed:", error.message);
     return NextResponse.redirect(
       `${origin}/login?error=${encodeURIComponent(error.message)}`
     );

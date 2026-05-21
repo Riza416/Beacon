@@ -43,11 +43,15 @@ interface RequestFormProps {
   fields: FieldDefinition[];
   values: FieldValue[];
   canSubmit: boolean;
+  /** Whether the current user is on a team. Submission is blocked when false. */
+  hasTeam: boolean;
   /** Current user's id; used as the storage path prefix. */
   uploaderId: string;
   /** Signed URLs (keyed by storage path) for any existing image attachments,
    * so the form can show a preview of what's already saved. */
   signedUrls?: Record<string, string>;
+  /** Admin-configured catalog the author picks one of. */
+  products: { id: string; name: string }[];
 }
 
 type FormValue = string | boolean | string[];
@@ -58,7 +62,7 @@ const TYPE_CAPTIONS: Record<FieldType, string> = {
   url: "Link",
   file: "File",
   image: "Screenshot",
-  select: "Pick one",
+  select: "",
   multi_select: "Pick several",
   checkbox: "Yes / no",
 };
@@ -99,12 +103,17 @@ export function RequestForm({
   fields,
   values,
   canSubmit,
+  hasTeam,
   uploaderId,
   signedUrls,
+  products,
 }: RequestFormProps) {
   const router = useRouter();
   const [title, setTitle] = React.useState(request.title ?? "");
   const [summary, setSummary] = React.useState(request.summary ?? "");
+  const [productId, setProductId] = React.useState<string | null>(
+    request.product_id ?? null
+  );
 
   // Per-(field, type) values keyed by `${field_id}::${type}`.
   const initialFormValues = React.useMemo<Record<string, FormValue>>(() => {
@@ -166,7 +175,7 @@ export function RequestForm({
         }
       }
     }
-    return { title, summary, values: valuesPayload };
+    return { title, summary, productId, values: valuesPayload };
   }
 
   function onSave() {
@@ -191,9 +200,12 @@ export function RequestForm({
           { force }
         );
         if (result.ok) {
-          toast.success("Request submitted");
+          toast.success("Request submitted — you can still edit anytime");
           setSoftModal({ open: false, missing: [] });
-          router.push(`/requests/${request.id}`);
+          // Stay on the edit page so the user feels they still own the
+          // request post-submission. The Submit button will disappear on
+          // re-render (canSubmit becomes false for non-draft), but Save
+          // and all field inputs remain usable.
           router.refresh();
           return;
         }
@@ -275,6 +287,32 @@ export function RequestForm({
         />
       </div>
 
+      <div className="space-y-2">
+        <Label htmlFor="product">Product</Label>
+        <Select
+          value={productId ?? "__none__"}
+          onValueChange={(v) => setProductId(v === "__none__" ? null : v)}
+        >
+          <SelectTrigger id="product">
+            <SelectValue placeholder="Pick a product" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__none__">No product</SelectItem>
+            {products.map((p) => (
+              <SelectItem key={p.id} value={p.id}>
+                {p.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {products.length === 0 && (
+          <p className="text-xs text-muted-foreground">
+            No products configured yet — ask an admin to add some under{" "}
+            <code>/admin/products</code>.
+          </p>
+        )}
+      </div>
+
       {fields.map((f) => {
         const types = allowedTypes(f);
         const showSubLabels = types.length > 1;
@@ -291,7 +329,7 @@ export function RequestForm({
                 const inputId = `field-${f.id}-${t}`;
                 return (
                   <div key={k} className="space-y-1.5">
-                    {showSubLabels && (
+                    {showSubLabels && TYPE_CAPTIONS[t] && (
                       <Label
                         htmlFor={inputId}
                         className="text-xs font-normal text-muted-foreground"
@@ -444,9 +482,23 @@ export function RequestForm({
           {isPending ? "Saving…" : "Save draft"}
         </Button>
         {canSubmit && (
-          <Button onClick={() => doSubmit(false)} disabled={isPending}>
+          <Button
+            onClick={() => doSubmit(false)}
+            disabled={isPending || !hasTeam}
+            title={
+              hasTeam
+                ? undefined
+                : "You need to be on a team before submitting"
+            }
+          >
             {isPending ? "Submitting…" : "Submit to product team"}
           </Button>
+        )}
+        {canSubmit && !hasTeam && (
+          <p className="basis-full text-xs text-muted-foreground">
+            You can save drafts, but submission requires you to be on a team.
+            Ask an admin to add you.
+          </p>
         )}
       </div>
 
