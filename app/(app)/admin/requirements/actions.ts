@@ -11,8 +11,11 @@ const VALID_FIELD_TYPES: FieldType[] = [
   "file",
   "image",
   "select",
+  "multi_select",
   "checkbox",
 ];
+
+const TYPES_WITH_OPTIONS: FieldType[] = ["select", "multi_select"];
 const VALID_REQUIRED_LEVELS: RequiredLevel[] = ["hard", "soft", "optional"];
 
 function parseOptions(raw: string): string[] | null {
@@ -36,7 +39,7 @@ export async function createField(formData: FormData) {
   if (!VALID_REQUIRED_LEVELS.includes(required_level))
     throw new Error("Invalid required level");
 
-  const options = field_type === "select" ? parseOptions(optionsRaw) : null;
+  const options = TYPES_WITH_OPTIONS.includes(field_type) ? parseOptions(optionsRaw) : null;
 
   const { data: maxRow } = await supabase
     .from("request_field_definitions")
@@ -75,7 +78,7 @@ export async function updateField(formData: FormData) {
   if (!VALID_REQUIRED_LEVELS.includes(required_level))
     throw new Error("Invalid required level");
 
-  const options = field_type === "select" ? parseOptions(optionsRaw) : null;
+  const options = TYPES_WITH_OPTIONS.includes(field_type) ? parseOptions(optionsRaw) : null;
 
   const { error } = await supabase
     .from("request_field_definitions")

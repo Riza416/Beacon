@@ -218,6 +218,16 @@ export async function submitRequest(
       // Checkbox "required" means it must be checked.
       return v.value_text === "true";
     }
+    if (f.field_type === "multi_select") {
+      // Multi-select is filled if at least one option is selected.
+      if (!v.value_text) return false;
+      try {
+        const arr = JSON.parse(v.value_text);
+        return Array.isArray(arr) && arr.length > 0;
+      } catch {
+        return false;
+      }
+    }
     return Boolean(v.value_text && v.value_text.trim().length > 0);
   }
 

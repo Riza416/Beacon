@@ -263,6 +263,29 @@ function FieldValueRenderer({
         return <p className="text-sm text-muted-foreground">—</p>;
       return <p className="text-sm">{value.value_text}</p>;
     }
+    case "multi_select": {
+      if (!value.value_text)
+        return <p className="text-sm text-muted-foreground">—</p>;
+      let selected: string[] = [];
+      try {
+        const parsed = JSON.parse(value.value_text);
+        if (Array.isArray(parsed))
+          selected = parsed.filter((x) => typeof x === "string");
+      } catch {
+        // fall through to empty
+      }
+      if (selected.length === 0)
+        return <p className="text-sm text-muted-foreground">—</p>;
+      return (
+        <div className="flex flex-wrap gap-1.5">
+          {selected.map((s) => (
+            <Badge key={s} variant="secondary">
+              {s}
+            </Badge>
+          ))}
+        </div>
+      );
+    }
     case "long_text": {
       if (!value.value_text)
         return <p className="text-sm text-muted-foreground">—</p>;

@@ -113,7 +113,7 @@ export function EditFieldDialog({ field }: EditFieldDialogProps) {
               defaultValue={field.help_text ?? ""}
             />
           </div>
-          {field.field_type === "select" && (
+          {(field.field_type === "select" || field.field_type === "multi_select") && (
             <div className="space-y-2">
               <Label htmlFor={`options-${field.id}`}>Options (one per line)</Label>
               <Textarea

@@ -7,6 +7,7 @@ export type FieldType =
   | "file"
   | "image"
   | "select"
+  | "multi_select"
   | "checkbox";
 export type RequiredLevel = "hard" | "soft" | "optional";
 

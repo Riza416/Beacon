@@ -41,11 +41,26 @@ interface RequestFormProps {
   uploaderId: string;
 }
 
-type FormValue = string | boolean;
+type FormValue = string | boolean | string[];
+
+function parseMultiSelect(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((x) => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
 
 function valueForField(f: FieldDefinition, v: FieldValue | undefined): FormValue {
-  if (!v) return f.field_type === "checkbox" ? false : "";
+  if (!v) {
+    if (f.field_type === "checkbox") return false;
+    if (f.field_type === "multi_select") return [];
+    return "";
+  }
   if (f.field_type === "checkbox") return v.value_text === "true";
+  if (f.field_type === "multi_select") return parseMultiSelect(v.value_text);
   return v.value_text ?? "";
 }
 
@@ -100,7 +115,12 @@ export function RequestForm({
     for (const f of fields) {
       const v = formValues[f.id];
       if (v === undefined) continue;
-      valuesPayload[f.id] = v;
+      // Multi-select is serialized to JSON so it fits in value_text (a string column).
+      if (Array.isArray(v)) {
+        valuesPayload[f.id] = JSON.stringify(v);
+      } else {
+        valuesPayload[f.id] = v;
+      }
     }
     return { title, summary, values: valuesPayload };
   }
@@ -258,6 +278,36 @@ export function RequestForm({
                   ))}
                 </SelectContent>
               </Select>
+            )}
+            {f.field_type === "multi_select" && (
+              <div className="space-y-2">
+                {(f.options ?? []).length === 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    No options configured.
+                  </p>
+                )}
+                {(f.options ?? []).map((opt) => {
+                  const selected = Array.isArray(v) ? v : [];
+                  const checked = selected.includes(opt);
+                  const optId = `${fieldId}-${opt}`;
+                  return (
+                    <div key={opt} className="flex items-center gap-2">
+                      <Checkbox
+                        id={optId}
+                        checked={checked}
+                        onCheckedChange={(next) => {
+                          const isOn = next === true;
+                          const without = selected.filter((s) => s !== opt);
+                          setValue(f.id, isOn ? [...without, opt] : without);
+                        }}
+                      />
+                      <Label htmlFor={optId} className="text-sm font-normal">
+                        {opt}
+                      </Label>
+                    </div>
+                  );
+                })}
+              </div>
             )}
             {f.field_type === "checkbox" && (
               <div className="flex items-center gap-2">

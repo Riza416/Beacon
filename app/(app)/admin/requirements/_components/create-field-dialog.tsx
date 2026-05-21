@@ -31,9 +31,12 @@ const FIELD_TYPES: { value: FieldType; label: string }[] = [
   { value: "url", label: "URL" },
   { value: "file", label: "File" },
   { value: "image", label: "Image" },
-  { value: "select", label: "Select" },
+  { value: "select", label: "Select (one option)" },
+  { value: "multi_select", label: "Multi-select (many options)" },
   { value: "checkbox", label: "Checkbox" },
 ];
+
+const TYPES_WITH_OPTIONS: FieldType[] = ["select", "multi_select"];
 
 const REQUIRED_LEVELS: { value: RequiredLevel; label: string }[] = [
   { value: "hard", label: "Hard (must fill to submit)" },
@@ -123,7 +126,7 @@ export function CreateFieldDialog() {
             <Label htmlFor="help_text">Help text</Label>
             <Textarea id="help_text" name="help_text" rows={2} />
           </div>
-          {fieldType === "select" && (
+          {TYPES_WITH_OPTIONS.includes(fieldType) && (
             <div className="space-y-2">
               <Label htmlFor="options">Options (one per line)</Label>
               <Textarea
@@ -132,6 +135,11 @@ export function CreateFieldDialog() {
                 rows={4}
                 placeholder={"Low\nMedium\nHigh"}
               />
+              {fieldType === "multi_select" && (
+                <p className="text-xs text-muted-foreground">
+                  Users can pick more than one option.
+                </p>
+              )}
             </div>
           )}
           <DialogFooter>
