@@ -4,13 +4,17 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { authedAction, adminAction } from "@/lib/actions/utils";
+import * as priority from "@/lib/priority";
 import type {
   FieldDefinition,
   FieldType,
   FieldValue,
   RequestRow,
 } from "@/lib/types";
+import type { Database } from "@/lib/database.types";
 import type { SubmitResult } from "@/lib/request-actions-types";
+
+type RequestUpdate = Database["public"]["Tables"]["requests"]["Update"];
 
 const VALID_FIELD_TYPES: FieldType[] = [
   "short_text",
@@ -143,18 +147,11 @@ export async function createDraft(): Promise<void> {
 
   // Priority is per (team, product). A new draft has no product yet, so it
   // lands in the (author's team, null product) group at max+1.
-  let groupMaxQuery = supabase
-    .from("requests")
-    .select("team_priority")
-    .is("product_id", null)
-    .order("team_priority", { ascending: false })
-    .limit(1);
-  groupMaxQuery = profile.team_id
-    ? groupMaxQuery.eq("team_id", profile.team_id)
-    : groupMaxQuery.is("team_id", null);
-  const { data: groupMax } =
-    await groupMaxQuery.maybeSingle<{ team_priority: number }>();
-  const nextTeamPriority = (groupMax?.team_priority ?? -1) + 1;
+  const nextTeamPriority = await priority.nextSlot(
+    supabase,
+    profile.team_id,
+    null
+  );
 
   const { data: inserted, error } = await supabase
     .from("requests")
@@ -208,22 +205,14 @@ async function persistFormState(
 
   let nextTeamPriority: number | undefined;
   if (productChanged) {
-    const teamId = before?.team_id ?? null;
-    let q = supabase
-      .from("requests")
-      .select("team_priority")
-      .order("team_priority", { ascending: false })
-      .limit(1);
-    q = teamId ? q.eq("team_id", teamId) : q.is("team_id", null);
-    q = parsed.productId
-      ? q.eq("product_id", parsed.productId)
-      : q.is("product_id", null);
-    const { data: groupMax } =
-      await q.maybeSingle<{ team_priority: number }>();
-    nextTeamPriority = (groupMax?.team_priority ?? -1) + 1;
+    nextTeamPriority = await priority.nextSlot(
+      supabase,
+      before?.team_id ?? null,
+      parsed.productId
+    );
   }
 
-  const updates: Record<string, unknown> = {
+  const updates: RequestUpdate = {
     title,
     summary: summary.length === 0 ? null : summary,
     product_id: parsed.productId,
@@ -576,7 +565,8 @@ export async function deleteRequest(requestId: string): Promise<void> {
   const { error } = await supabase.from("requests").delete().eq("id", requestId);
   if (error) throw new Error(error.message);
 
-  await compactTeamPriorities(
+  // Close the gap the deleted row left in its (team, product) priority group.
+  await priority.compact(
     supabase,
     doomed?.team_id ?? null,
     doomed?.product_id ?? null
@@ -585,63 +575,6 @@ export async function deleteRequest(requestId: string): Promise<void> {
   revalidatePath("/");
   revalidatePath("/requests/mine");
   redirect("/");
-}
-
-export async function reorderMine(
-  requestId: string,
-  direction: "up" | "down"
-): Promise<{ ok: true }> {
-  const { supabase, profile } = await authedAction();
-
-  const { data: mine, error } = await supabase
-    .from("requests")
-    .select("id, priority, updated_at")
-    .eq("author_id", profile.id)
-    .order("priority", { ascending: true })
-    .order("updated_at", { ascending: false })
-    .returns<{ id: string; priority: number; updated_at: string }[]>();
-
-  if (error) throw new Error(error.message);
-  if (!mine) return { ok: true };
-
-  const idx = mine.findIndex((r) => r.id === requestId);
-  if (idx < 0) throw new Error("Request not found");
-
-  const neighborIdx = direction === "up" ? idx - 1 : idx + 1;
-  if (neighborIdx < 0 || neighborIdx >= mine.length) return { ok: true };
-
-  const current = mine[idx];
-  const neighbor = mine[neighborIdx];
-
-  // Swap priorities. If they are equal, bump current's priority appropriately
-  // so the order visibly changes.
-  let currentNew = neighbor.priority;
-  let neighborNew = current.priority;
-  if (current.priority === neighbor.priority) {
-    if (direction === "up") {
-      currentNew = neighbor.priority - 1;
-      neighborNew = neighbor.priority;
-    } else {
-      currentNew = neighbor.priority + 1;
-      neighborNew = neighbor.priority;
-    }
-  }
-
-  const { error: e1 } = await supabase
-    .from("requests")
-    .update({ priority: currentNew })
-    .eq("id", current.id);
-  if (e1) throw new Error(e1.message);
-
-  const { error: e2 } = await supabase
-    .from("requests")
-    .update({ priority: neighborNew })
-    .eq("id", neighbor.id);
-  if (e2) throw new Error(e2.message);
-
-  revalidatePath("/requests/mine");
-  revalidatePath("/");
-  return { ok: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -820,105 +753,6 @@ export async function markTagsViewed(
   return { ok: true };
 }
 
-/**
- * Renumber every request in a team so priorities form a dense 0..N-1
- * sequence by their current order. Used after delete (gap) and as a sanity
- * compactor anywhere the invariant might have drifted. No-op for null-team.
- */
-/**
- * Priority groups are now (team_id, product_id) pairs. Each combo gets its
- * own dense 0..N-1 sequence. The null-team / null-product bucket is treated
- * as its own valid group so even unassigned items stay tightly ordered.
- *
- * Build the filtered query that yields one priority group.
- */
-function priorityGroupQuery(
-  supabase: Awaited<ReturnType<typeof adminAction>>["supabase"],
-  teamId: string | null,
-  productId: string | null
-) {
-  let q = supabase
-    .from("requests")
-    .select("id, team_priority, updated_at")
-    .order("team_priority", { ascending: true })
-    .order("updated_at", { ascending: false });
-  q = teamId ? q.eq("team_id", teamId) : q.is("team_id", null);
-  q = productId ? q.eq("product_id", productId) : q.is("product_id", null);
-  return q;
-}
-
-/**
- * Renumber every request in a (team, product) priority group so priorities
- * form a dense 0..N-1 sequence by their current order. Used after delete
- * (gap) and as a sanity compactor anywhere the invariant might have drifted.
- */
-async function compactTeamPriorities(
-  supabase: Awaited<ReturnType<typeof adminAction>>["supabase"],
-  teamId: string | null,
-  productId: string | null
-): Promise<void> {
-  const { data: rows, error } = await priorityGroupQuery(
-    supabase,
-    teamId,
-    productId
-  ).returns<{ id: string; team_priority: number; updated_at: string }[]>();
-  if (error) throw new Error(error.message);
-  if (!rows) return;
-  for (let i = 0; i < rows.length; i++) {
-    if (rows[i].team_priority === i) continue;
-    const { error: updErr } = await supabase
-      .from("requests")
-      .update({ team_priority: i })
-      .eq("id", rows[i].id);
-    if (updErr) throw new Error(updErr.message);
-  }
-}
-
-/**
- * Resequence every request in the (team, product) group so the target
- * request lands at `targetIndex`. Priorities become a dense 0..N-1
- * sequence with no duplicates. Other rows shift to make room.
- */
-async function resequenceTeamPriorities(
-  supabase: Awaited<ReturnType<typeof adminAction>>["supabase"],
-  teamId: string | null,
-  productId: string | null,
-  requestId: string,
-  targetIndex: number
-): Promise<void> {
-  const { data: rows, error: listErr } = await priorityGroupQuery(
-    supabase,
-    teamId,
-    productId
-  ).returns<{ id: string; team_priority: number; updated_at: string }[]>();
-  if (listErr) throw new Error(listErr.message);
-  if (!rows || rows.length === 0) return;
-
-  const others = rows.filter((r) => r.id !== requestId);
-  const targetRow =
-    rows.find((r) => r.id === requestId) ??
-    ({ id: requestId, team_priority: -1, updated_at: "" } as const);
-
-  const clamped = Math.max(0, Math.min(targetIndex, others.length));
-  const ordered: { id: string; team_priority: number }[] = [
-    ...others.slice(0, clamped),
-    targetRow,
-    ...others.slice(clamped),
-  ];
-
-  // Bulk-write the new priorities. To avoid the (unlikely) intermediate
-  // unique-value collision we don't have a unique constraint, so a plain
-  // sequence of updates is fine.
-  for (let i = 0; i < ordered.length; i++) {
-    if (ordered[i].team_priority === i) continue; // already correct
-    const { error: updErr } = await supabase
-      .from("requests")
-      .update({ team_priority: i })
-      .eq("id", ordered[i].id);
-    if (updErr) throw new Error(updErr.message);
-  }
-}
-
 export async function setTeamPriority(
   requestId: string,
   value: number
@@ -932,57 +766,16 @@ export async function setTeamPriority(
     .from("requests")
     .select("id, team_id, product_id")
     .eq("id", requestId)
-    .maybeSingle<{
-      id: string;
-      team_id: string | null;
-      product_id: string | null;
-    }>();
+    .maybeSingle();
   if (curErr) throw new Error(curErr.message);
   if (!current) throw new Error("Request not found");
 
-  await resequenceTeamPriorities(
+  await priority.resequence(
     supabase,
     current.team_id,
     current.product_id,
     requestId,
     Math.round(value)
-  );
-
-  revalidatePath("/");
-  return { ok: true };
-}
-
-export async function reorderTeamPriority(
-  requestId: string,
-  direction: "up" | "down"
-): Promise<{ ok: true }> {
-  const { supabase } = await adminAction();
-
-  // Priority is scoped to the (team, product) combo the request lives in.
-  // Each combo has its own dense 0..N-1 sequence so "#1 in Product A" and
-  // "#1 in Product B" can coexist for the same team.
-  const { data: current, error: curErr } = await supabase
-    .from("requests")
-    .select("id, team_id, product_id, team_priority")
-    .eq("id", requestId)
-    .maybeSingle<{
-      id: string;
-      team_id: string | null;
-      product_id: string | null;
-      team_priority: number;
-    }>();
-  if (curErr) throw new Error(curErr.message);
-  if (!current) throw new Error("Request not found");
-
-  const delta = direction === "up" ? -1 : 1;
-  const target = Math.max(0, current.team_priority + delta);
-
-  await resequenceTeamPriorities(
-    supabase,
-    current.team_id,
-    current.product_id,
-    requestId,
-    target
   );
 
   revalidatePath("/");
