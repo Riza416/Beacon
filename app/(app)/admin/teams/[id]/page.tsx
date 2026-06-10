@@ -12,6 +12,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { Profile, Team } from "@/lib/types";
+import { TEAM_REQUEST_SELECT } from "@/lib/queries";
 import { formatDate } from "@/lib/utils";
 import { EditTeamDialog } from "../_components/edit-team-dialog";
 import { AddMemberDialog } from "../_components/add-member-dialog";
@@ -65,12 +66,7 @@ export default async function TeamDetailPage({
   // visible here too.
   const { data: requests } = await supabase
     .from("requests")
-    .select(
-      "id, title, state, team_priority, notion_url, updated_at, " +
-        "status:statuses(id, label, color), " +
-        "product:products(id, name), " +
-        "author:profiles!requests_author_id_fkey(full_name, email)"
-    )
+    .select(TEAM_REQUEST_SELECT)
     .eq("team_id", id)
     .order("team_priority", { ascending: true })
     .order("updated_at", { ascending: false })
@@ -90,12 +86,7 @@ export default async function TeamDetailPage({
   if (taggedIds.length > 0) {
     const { data: depRows } = await supabase
       .from("requests")
-      .select(
-        "id, title, state, team_priority, notion_url, updated_at, " +
-          "status:statuses(id, label, color), " +
-          "product:products(id, name), " +
-          "author:profiles!requests_author_id_fkey(full_name, email)"
-      )
+      .select(TEAM_REQUEST_SELECT)
       .in("id", taggedIds)
       .neq("team_id", id)
       .order("updated_at", { ascending: false })

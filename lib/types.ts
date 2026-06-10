@@ -1,3 +1,9 @@
+// Domain types. Table shapes are derived from the generated `Database` type
+// (single source of truth — re-run scripts/gen-types.mjs after a migration),
+// then narrowed where the DB uses a plain `text`/`text[]` column but the app
+// enforces a fixed set of values via CHECK constraints.
+import type { Database } from "@/lib/database.types";
+
 export type Role = "admin" | "user";
 export type RequestState = "draft" | "submitted";
 export type FieldType =
@@ -11,103 +17,34 @@ export type FieldType =
   | "checkbox";
 export type RequiredLevel = "hard" | "soft" | "optional";
 
-export interface Team {
-  id: string;
-  name: string;
-  description: string | null;
-  created_at: string;
-  updated_at: string;
-}
+type Row<T extends keyof Database["public"]["Tables"]> =
+  Database["public"]["Tables"][T]["Row"];
 
-export interface Product {
-  id: string;
-  name: string;
-  description: string | null;
-  created_at: string;
-  updated_at: string;
-}
+export type Team = Row<"teams">;
+export type Product = Row<"products">;
 
-export interface Profile {
-  id: string;
-  full_name: string | null;
-  email: string | null;
-  role: Role;
-  team_id: string | null;
-  created_at: string;
-  updated_at: string;
-}
+export type Profile = Omit<Row<"profiles">, "role"> & { role: Role };
 
-export interface Status {
-  id: string;
-  label: string;
-  color: string;
-  display_order: number;
-  is_default: boolean;
-  is_terminal: boolean;
-  created_at: string;
-  updated_at: string;
-}
+export type Status = Row<"statuses">;
 
-export interface FieldDefinition {
-  id: string;
-  label: string;
-  /**
-   * Legacy single-type column, kept for back-compat. Equals `field_types[0]`.
-   */
+export type FieldDefinition = Omit<
+  Row<"request_field_definitions">,
+  "field_type" | "field_types" | "required_level" | "options"
+> & {
+  /** Legacy single-type column, kept for back-compat. Equals `field_types[0]`. */
   field_type: FieldType;
-  /**
-   * Set of allowed input types. The request form renders one sub-input per
-   * entry; values are stored per (request, field_definition, field_type).
-   */
+  /** Allowed input types; the form renders one sub-input per entry. */
   field_types: FieldType[];
   required_level: RequiredLevel;
-  help_text: string | null;
   options: string[] | null;
-  display_order: number;
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
-}
+};
 
-export interface RequestRow {
-  id: string;
-  title: string;
-  summary: string | null;
-  author_id: string;
-  team_id: string | null;
-  status_id: string | null;
-  product_id: string | null;
-  priority: number;
-  team_priority: number;
+export type RequestRow = Omit<Row<"requests">, "state"> & {
   state: RequestState;
-  submitted_at: string | null;
-  notion_url: string | null;
-  /** Optional day-level deadline (YYYY-MM-DD when set). */
-  deadline: string | null;
-  created_at: string;
-  updated_at: string;
-}
+};
 
-export interface FieldValue {
-  id: string;
-  request_id: string;
-  field_definition_id: string;
-  /**
-   * Which of the field definition's allowed types this row corresponds to.
-   * A single (request, field_definition) pair can have multiple rows — one
-   * per type the admin enabled on the field.
-   */
+export type FieldValue = Omit<Row<"request_field_values">, "field_type"> & {
   field_type: FieldType;
-  value_text: string | null;
-  file_path: string | null;
-  created_at: string;
-  updated_at: string;
-}
+};
 
-export interface Comment {
-  id: string;
-  request_id: string;
-  author_id: string;
-  body: string;
-  created_at: string;
-}
+export type Comment = Row<"comments">;

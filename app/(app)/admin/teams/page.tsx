@@ -10,6 +10,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { Team } from "@/lib/types";
+import { TEAM_WITH_MEMBER_COUNT_SELECT } from "@/lib/queries";
 import { CreateTeamDialog } from "./_components/create-team-dialog";
 
 type TeamWithMembers = Team & {
@@ -22,7 +23,7 @@ export default async function AdminTeamsPage() {
     .from("teams")
     // Explicit FK path required: request_team_tag_views introduced a second
     // teams⇄profiles relationship that PostgREST can't pick between.
-    .select("*, members:profiles!profiles_team_id_fkey(count)")
+    .select(TEAM_WITH_MEMBER_COUNT_SELECT)
     .order("name", { ascending: true })
     .returns<TeamWithMembers[]>();
 

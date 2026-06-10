@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { DashboardRowControls } from "@/components/dashboard-row-controls";
 import { DashboardFilters } from "@/components/dashboard-filters";
 import { formatDate } from "@/lib/utils";
+import { REQUEST_CARD_SELECT } from "@/lib/queries";
 import type { Profile, Status, Team } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -114,13 +115,7 @@ async function Dashboard({
 
   let baseQuery = supabase
     .from("requests")
-    .select(
-      "id, title, summary, state, priority, team_priority, team_id, product_id, status_id, submitted_at, updated_at, notion_url, deadline, author_id, " +
-        "status:statuses(id, label, color), " +
-        "team:teams!requests_team_id_fkey(id, name), " +
-        "product:products(id, name), " +
-        "author:profiles!requests_author_id_fkey(full_name, email)"
-    );
+    .select(REQUEST_CARD_SELECT);
 
   if (teamFilter !== ALL) {
     baseQuery =

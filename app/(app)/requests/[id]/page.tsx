@@ -21,6 +21,7 @@ import {
   type TagPickerTeam,
 } from "@/components/tag-picker";
 import { markTagsViewed } from "@/app/(app)/requests/actions";
+import { COMMENT_SELECT, REQUEST_DETAIL_SELECT } from "@/lib/queries";
 import { formatDate } from "@/lib/utils";
 import type {
   Comment,
@@ -71,9 +72,7 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
 
   const { data: request } = await supabase
     .from("requests")
-    .select(
-      "*, status:statuses(id, label, color), product:products(id, name), author:profiles!requests_author_id_fkey(full_name, email)"
-    )
+    .select(REQUEST_DETAIL_SELECT)
     .eq("id", id)
     .maybeSingle<RequestWithJoins>();
 
@@ -94,9 +93,7 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
 
   const { data: comments } = await supabase
     .from("comments")
-    .select(
-      "*, author:profiles!comments_author_id_fkey(full_name, email)"
-    )
+    .select(COMMENT_SELECT)
     .eq("request_id", id)
     .order("created_at", { ascending: true })
     .returns<CommentWithAuthor[]>();
