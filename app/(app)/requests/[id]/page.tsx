@@ -98,6 +98,20 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
     .order("created_at", { ascending: true })
     .returns<CommentWithAuthor[]>();
 
+  // Teams that own this request's product (if any), shown next to the
+  // product badge so the relationship is visible from the request.
+  let productOwnerNames: string[] = [];
+  if (request.product_id) {
+    const { data: ownerRows } = await supabase
+      .from("product_owners")
+      .select("team:teams(name)")
+      .eq("product_id", request.product_id)
+      .returns<{ team: { name: string } | null }[]>();
+    productOwnerNames = (ownerRows ?? [])
+      .map((r) => r.team?.name)
+      .filter((n): n is string => Boolean(n));
+  }
+
   const isAdmin = profile.role === "admin";
   const isAuthor = request.author_id === profile.id;
   const isDraft = request.state === "draft";
@@ -200,6 +214,11 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
             )}
             {request.product && (
               <Badge variant="outline">{request.product.name}</Badge>
+            )}
+            {productOwnerNames.length > 0 && (
+              <span className="text-xs text-muted-foreground">
+                owned by {productOwnerNames.join(", ")}
+              </span>
             )}
             {request.notion_url && (
               <a

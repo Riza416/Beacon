@@ -15,21 +15,46 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import type { Product } from "@/lib/types";
 import { createProduct, updateProduct } from "../actions";
 
 interface ProductDialogProps {
   mode: "create" | "edit";
   product?: Product;
+  /** All teams, for the owning-team picker. */
+  teams: { id: string; name: string }[];
+  /** Team ids that currently own this product (edit mode). */
+  ownerTeamIds?: string[];
   trigger: React.ReactNode;
 }
 
-export function ProductDialog({ mode, product, trigger }: ProductDialogProps) {
+export function ProductDialog({
+  mode,
+  product,
+  teams,
+  ownerTeamIds = [],
+  trigger,
+}: ProductDialogProps) {
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
+  const [owners, setOwners] = useState<Set<string>>(
+    () => new Set(ownerTeamIds)
+  );
+
+  function toggleOwner(teamId: string, on: boolean) {
+    setOwners((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(teamId);
+      else next.delete(teamId);
+      return next;
+    });
+  }
 
   function onSubmit(formData: FormData) {
     if (mode === "edit" && product?.id) formData.set("id", product.id);
+    formData.delete("owner_team_ids");
+    for (const id of owners) formData.append("owner_team_ids", id);
     startTransition(async () => {
       try {
         if (mode === "create") await createProduct(formData);
@@ -75,6 +100,35 @@ export function ProductDialog({ mode, product, trigger }: ProductDialogProps) {
               defaultValue={product?.description ?? ""}
               rows={2}
             />
+          </div>
+          <div className="space-y-2">
+            <Label>Owning teams</Label>
+            <p className="text-xs text-muted-foreground">
+              Teams responsible for this product.
+            </p>
+            {teams.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                No teams yet — create one under Teams first.
+              </p>
+            ) : (
+              <div className="grid max-h-40 grid-cols-1 gap-2 overflow-auto rounded-md border p-3 sm:grid-cols-2">
+                {teams.map((t) => {
+                  const id = `owner-${t.id}`;
+                  return (
+                    <div key={t.id} className="flex items-center gap-2">
+                      <Checkbox
+                        id={id}
+                        checked={owners.has(t.id)}
+                        onCheckedChange={(c) => toggleOwner(t.id, c === true)}
+                      />
+                      <Label htmlFor={id} className="text-sm font-normal">
+                        {t.name}
+                      </Label>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button

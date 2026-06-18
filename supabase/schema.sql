@@ -32,6 +32,15 @@ create table public.products (
   updated_at timestamptz not null default now()
 );
 
+-- Products can be owned by one or more teams (many-to-many, display-only).
+create table public.product_owners (
+  product_id uuid not null references public.products(id) on delete cascade,
+  team_id uuid not null references public.teams(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (product_id, team_id)
+);
+create index product_owners_team_idx on public.product_owners(team_id);
+
 create table public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   full_name text,
@@ -208,6 +217,7 @@ $$;
 -- ---------------------------------------------------------------------------
 alter table public.teams                     enable row level security;
 alter table public.products                  enable row level security;
+alter table public.product_owners            enable row level security;
 alter table public.profiles                  enable row level security;
 alter table public.statuses                  enable row level security;
 alter table public.request_field_definitions enable row level security;
@@ -233,6 +243,10 @@ create policy teams_admin_all on public.teams for all to authenticated
 
 create policy products_read_all on public.products for select to authenticated using (true);
 create policy products_admin_all on public.products for all to authenticated
+  using (public.is_admin(auth.uid())) with check (public.is_admin(auth.uid()));
+
+create policy product_owners_read_all on public.product_owners for select to authenticated using (true);
+create policy product_owners_admin_all on public.product_owners for all to authenticated
   using (public.is_admin(auth.uid())) with check (public.is_admin(auth.uid()));
 
 create policy statuses_read_all on public.statuses for select to authenticated using (true);
