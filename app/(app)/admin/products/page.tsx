@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   Table,
   TableBody,
@@ -9,7 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { Product } from "@/lib/types";
+import type { Product, Team } from "@/lib/types";
 import { ProductDialog } from "./_components/product-dialog";
 import { DeleteProductButton } from "./_components/delete-product-button";
 
@@ -20,6 +21,26 @@ export default async function AdminProductsPage() {
     .select("*")
     .order("name")
     .returns<Product[]>();
+
+  // All teams for the owning-team picker.
+  const { data: teams } = await supabase
+    .from("teams")
+    .select("id, name")
+    .order("name")
+    .returns<Pick<Team, "id" | "name">[]>();
+  const teamNameById = new Map((teams ?? []).map((t) => [t.id, t.name]));
+
+  // Ownership rows -> map of product_id -> owning team ids.
+  const { data: ownerRows } = await supabase
+    .from("product_owners")
+    .select("product_id, team_id")
+    .returns<{ product_id: string; team_id: string }[]>();
+  const ownersByProduct = new Map<string, string[]>();
+  for (const r of ownerRows ?? []) {
+    const list = ownersByProduct.get(r.product_id) ?? [];
+    list.push(r.team_id);
+    ownersByProduct.set(r.product_id, list);
+  }
 
   // Per-product usage counts so admins know what's in play before deleting.
   const { data: usageRows } = await supabase
@@ -43,6 +64,7 @@ export default async function AdminProductsPage() {
         </div>
         <ProductDialog
           mode="create"
+          teams={teams ?? []}
           trigger={<Button>Add product</Button>}
         />
       </header>
@@ -62,40 +84,61 @@ export default async function AdminProductsPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Name</TableHead>
+                  <TableHead>Owning teams</TableHead>
                   <TableHead>Description</TableHead>
                   <TableHead className="w-24 text-right">Requests</TableHead>
                   <TableHead className="w-40 text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {products.map((p) => (
-                  <TableRow key={p.id}>
-                    <TableCell className="font-medium">{p.name}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {p.description ?? "—"}
-                    </TableCell>
-                    <TableCell className="text-right text-sm text-muted-foreground">
-                      {usageByProduct.get(p.id) ?? 0}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <ProductDialog
-                          mode="edit"
-                          product={p}
-                          trigger={
-                            <Button variant="outline" size="sm">
-                              Edit
-                            </Button>
-                          }
-                        />
-                        <DeleteProductButton
-                          productId={p.id}
-                          productName={p.name}
-                        />
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {products.map((p) => {
+                  const ownerIds = ownersByProduct.get(p.id) ?? [];
+                  return (
+                    <TableRow key={p.id}>
+                      <TableCell className="font-medium">{p.name}</TableCell>
+                      <TableCell>
+                        {ownerIds.length === 0 ? (
+                          <span className="text-xs text-muted-foreground">
+                            Unassigned
+                          </span>
+                        ) : (
+                          <div className="flex flex-wrap gap-1">
+                            {ownerIds.map((tid) => (
+                              <Badge key={tid} variant="secondary">
+                                {teamNameById.get(tid) ?? "Unknown team"}
+                              </Badge>
+                            ))}
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {p.description ?? "—"}
+                      </TableCell>
+                      <TableCell className="text-right text-sm text-muted-foreground">
+                        {usageByProduct.get(p.id) ?? 0}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <ProductDialog
+                            mode="edit"
+                            product={p}
+                            teams={teams ?? []}
+                            ownerTeamIds={ownerIds}
+                            trigger={
+                              <Button variant="outline" size="sm">
+                                Edit
+                              </Button>
+                            }
+                          />
+                          <DeleteProductButton
+                            productId={p.id}
+                            productName={p.name}
+                          />
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           )}
