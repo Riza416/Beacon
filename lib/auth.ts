@@ -37,3 +37,17 @@ export async function requireAdmin(): Promise<Profile> {
   if (profile.role !== "admin") redirect("/forbidden");
   return profile;
 }
+
+/**
+ * Page guard for the /team area: allow global admins and team admins.
+ * Team admins must actually be on a team (their scope). Regular users are
+ * redirected to /forbidden.
+ */
+export async function requireTeamManager(): Promise<Profile> {
+  const profile = await requireProfile();
+  const ok =
+    profile.role === "admin" ||
+    (profile.role === "team_admin" && profile.team_id !== null);
+  if (!ok) redirect("/forbidden");
+  return profile;
+}

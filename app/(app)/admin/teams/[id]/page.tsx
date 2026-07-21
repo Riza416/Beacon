@@ -18,6 +18,8 @@ import { EditTeamDialog } from "../_components/edit-team-dialog";
 import { AddMemberDialog } from "../_components/add-member-dialog";
 import { RemoveMemberButton } from "../_components/remove-member-button";
 import { DeleteTeamButton } from "../_components/delete-team-button";
+import { MemberRoleControls } from "../_components/member-role-controls";
+import { TeamProductPermissionToggle } from "../_components/team-product-permission-toggle";
 
 interface TeamRequestRow {
   id: string;
@@ -109,7 +111,11 @@ export default async function TeamDetailPage({
             {team.description || "No description."}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-3">
+          <TeamProductPermissionToggle
+            teamId={team.id}
+            canManageProducts={team.can_manage_products}
+          />
           <EditTeamDialog team={team} />
           <DeleteTeamButton teamId={team.id} teamName={team.name} />
         </div>
@@ -173,6 +179,7 @@ export default async function TeamDetailPage({
                   <TableRow>
                     <TableHead>Name</TableHead>
                     <TableHead>Email</TableHead>
+                    <TableHead className="text-right">Role</TableHead>
                     <TableHead className="w-32 text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -184,6 +191,13 @@ export default async function TeamDetailPage({
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {m.email}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <MemberRoleControls
+                          teamId={team.id}
+                          profileId={m.id}
+                          role={m.role}
+                        />
                       </TableCell>
                       <TableCell className="text-right">
                         <RemoveMemberButton

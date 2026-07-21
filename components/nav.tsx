@@ -54,6 +54,7 @@ export default async function Nav() {
   if (!profile) return null;
 
   const isAdmin = profile.role === "admin";
+  const isTeamAdmin = profile.role === "team_admin";
   const unread = await countUnreadTags(profile.id, profile.team_id);
 
   return (
@@ -73,6 +74,11 @@ export default async function Nav() {
             <Link href="/requests/new" className="text-muted-foreground hover:text-foreground">
               New request
             </Link>
+            {isTeamAdmin && (
+              <Link href="/team" className="text-muted-foreground hover:text-foreground">
+                My team
+              </Link>
+            )}
             {isAdmin && (
               <>
                 <Link href="/admin/teams" className="text-muted-foreground hover:text-foreground">

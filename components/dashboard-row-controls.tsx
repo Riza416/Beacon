@@ -23,6 +23,10 @@ interface DashboardRowControlsProps {
   /** The request's raw team_priority value (admin-visible numeric). */
   currentPriority: number;
   statuses: Status[];
+  /** Show the status select. Global admins only. Defaults to true. */
+  canEditStatus?: boolean;
+  /** Show the priority input. Admins and the owning team's admin. Defaults to true. */
+  canEditPriority?: boolean;
 }
 
 export function DashboardRowControls({
@@ -30,6 +34,8 @@ export function DashboardRowControls({
   currentStatusId,
   currentPriority,
   statuses,
+  canEditStatus = true,
+  canEditPriority = true,
 }: DashboardRowControlsProps) {
   const router = useRouter();
   const [pending, startTransition] = React.useTransition();
@@ -83,48 +89,52 @@ export function DashboardRowControls({
 
   return (
     <div className="flex items-center gap-2">
-      <Input
-        type="number"
-        min={0}
-        value={priorityDraft}
-        onChange={(e) => setPriorityDraft(e.target.value)}
-        onBlur={() => commitPriority(priorityDraft)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            (e.currentTarget as HTMLInputElement).blur();
-          } else if (e.key === "Escape") {
-            setPriorityDraft(String(currentPriority));
-            (e.currentTarget as HTMLInputElement).blur();
-          }
-        }}
-        disabled={pending}
-        aria-label="Set priority"
-        title="Type a number to set this request's priority directly"
-        className="h-7 w-16 text-center text-xs tabular-nums"
-      />
-      <Select
-        value={currentStatusId ?? undefined}
-        onValueChange={onStatusChange}
-        disabled={pending}
-      >
-        <SelectTrigger className="h-8 w-[140px] text-xs">
-          <SelectValue placeholder="Set status" />
-        </SelectTrigger>
-        <SelectContent>
-          {statuses.map((s) => (
-            <SelectItem key={s.id} value={s.id} className="text-xs">
-              <span className="flex items-center gap-2">
-                <span
-                  className="h-2 w-2 rounded-full"
-                  style={{ backgroundColor: s.color }}
-                />
-                {s.label}
-              </span>
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      {canEditPriority && (
+        <Input
+          type="number"
+          min={0}
+          value={priorityDraft}
+          onChange={(e) => setPriorityDraft(e.target.value)}
+          onBlur={() => commitPriority(priorityDraft)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              (e.currentTarget as HTMLInputElement).blur();
+            } else if (e.key === "Escape") {
+              setPriorityDraft(String(currentPriority));
+              (e.currentTarget as HTMLInputElement).blur();
+            }
+          }}
+          disabled={pending}
+          aria-label="Set priority"
+          title="Type a number to set this request's priority directly"
+          className="h-7 w-16 text-center text-xs tabular-nums"
+        />
+      )}
+      {canEditStatus && (
+        <Select
+          value={currentStatusId ?? undefined}
+          onValueChange={onStatusChange}
+          disabled={pending}
+        >
+          <SelectTrigger className="h-8 w-[140px] text-xs">
+            <SelectValue placeholder="Set status" />
+          </SelectTrigger>
+          <SelectContent>
+            {statuses.map((s) => (
+              <SelectItem key={s.id} value={s.id} className="text-xs">
+                <span className="flex items-center gap-2">
+                  <span
+                    className="h-2 w-2 rounded-full"
+                    style={{ backgroundColor: s.color }}
+                  />
+                  {s.label}
+                </span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
     </div>
   );
 }

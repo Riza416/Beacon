@@ -4,7 +4,7 @@
 // enforces a fixed set of values via CHECK constraints.
 import type { Database } from "@/lib/database.types";
 
-export type Role = "admin" | "user";
+export type Role = "admin" | "team_admin" | "user";
 export type RequestState = "draft" | "submitted";
 export type FieldType =
   | "short_text"

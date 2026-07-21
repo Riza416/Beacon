@@ -20,6 +20,8 @@ create table public.teams (
   id uuid primary key default gen_random_uuid(),
   name text not null unique,
   description text,
+  -- Global-admin grant: may this team's admin create/edit products?
+  can_manage_products boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -45,7 +47,7 @@ create table public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   full_name text,
   email text,
-  role text not null default 'user' check (role in ('admin', 'user')),
+  role text not null default 'user' check (role in ('admin', 'team_admin', 'user')),
   team_id uuid references public.teams(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

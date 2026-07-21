@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { authedAction, adminAction } from "@/lib/actions/utils";
+import { authedAction, adminAction, canManageTeam } from "@/lib/actions/utils";
+import { createAdminClient } from "@/lib/supabase/admin";
 import * as priority from "@/lib/priority";
 import type {
   FieldDefinition,
@@ -757,11 +758,12 @@ export async function setTeamPriority(
   requestId: string,
   value: number
 ): Promise<{ ok: true }> {
-  const { supabase } = await adminAction();
   if (!Number.isFinite(value) || value < 0 || value > 1_000_000) {
     throw new Error("Priority must be a positive number");
   }
+  const { supabase, profile } = await authedAction();
 
+  // Read the request's group (reads are open to all authenticated users).
   const { data: current, error: curErr } = await supabase
     .from("requests")
     .select("id, team_id, product_id")
@@ -770,8 +772,16 @@ export async function setTeamPriority(
   if (curErr) throw new Error(curErr.message);
   if (!current) throw new Error("Request not found");
 
+  // Global admins may reorder any team; team admins only their own team.
+  if (!canManageTeam(profile, current.team_id)) {
+    throw new Error("You don't manage this team's priorities.");
+  }
+
+  // Write via the service-role client (team admins have no direct RLS write
+  // on requests; the check above is the boundary).
+  const admin = createAdminClient();
   await priority.resequence(
-    supabase,
+    admin,
     current.team_id,
     current.product_id,
     requestId,

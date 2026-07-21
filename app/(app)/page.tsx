@@ -251,7 +251,9 @@ async function Dashboard({
             priority.{" "}
             {isAdmin
               ? "Use the row controls to reorder priority and set status inline."
-              : "Admins triage status and priority."}
+              : profile.role === "team_admin"
+                ? "Reorder priority inline on your team's requests; admins set status."
+                : "Admins and team admins triage priority and status."}
           </p>
         </div>
         <Button asChild>
@@ -298,6 +300,7 @@ async function Dashboard({
             rows={awaitingTriage}
             statuses={statuses ?? []}
             isAdmin={isAdmin}
+            profile={profile}
           />
         </SectionCard>
       )}
@@ -404,6 +407,7 @@ async function Dashboard({
                                           : ownerIdx
                                       }
                                       isAdmin={isAdmin}
+                                      profile={profile}
                                       hideControls={entry.isDependency}
                                       taggedTeams={(
                                         tagsByRequest.get(entry.row.id) ?? []
@@ -440,6 +444,7 @@ async function Dashboard({
             statuses={statuses ?? []}
             compact
             isAdmin={isAdmin}
+            profile={profile}
             hideControls
           />
         </SectionCard>
@@ -530,6 +535,7 @@ function RequestList({
   compact = false,
   hideControls = false,
   isAdmin,
+  profile,
   showPosition = true,
 }: {
   rows: RequestRowJoined[];
@@ -537,6 +543,7 @@ function RequestList({
   compact?: boolean;
   hideControls?: boolean;
   isAdmin: boolean;
+  profile: Profile;
   showPosition?: boolean;
 }) {
   return (
@@ -552,6 +559,7 @@ function RequestList({
               compact={compact}
               hideControls={hideControls}
               isAdmin={isAdmin}
+              profile={profile}
             />
           ))}
         </ul>
@@ -567,6 +575,7 @@ function RequestRowItem({
   compact = false,
   hideControls = false,
   isAdmin,
+  profile,
   taggedTeams = [],
 }: {
   row: RequestRowJoined;
@@ -575,10 +584,18 @@ function RequestRowItem({
   compact?: boolean;
   hideControls?: boolean;
   isAdmin: boolean;
+  profile: Profile;
   /** Teams tagged on this request as dependencies (excluding the owner). */
   taggedTeams?: { id: string; name: string }[];
 }) {
-  const showControls = isAdmin && !hideControls;
+  // Global admins can edit everything. A team admin can reorder priority on
+  // their own team's rows (server-enforced in setTeamPriority) but never set
+  // status. Dependency rows never show controls.
+  const canEditStatus = isAdmin;
+  const canEditPriority =
+    isAdmin ||
+    (profile.role === "team_admin" && r.team_id === profile.team_id);
+  const showControls = canEditPriority && !hideControls;
   return (
     <li
       className={`flex flex-wrap items-center gap-3 ${compact ? "p-3" : "p-4"}`}
@@ -670,6 +687,8 @@ function RequestRowItem({
           currentStatusId={r.status_id}
           currentPriority={r.team_priority}
           statuses={statuses}
+          canEditStatus={canEditStatus}
+          canEditPriority={canEditPriority}
         />
       )}
     </li>
