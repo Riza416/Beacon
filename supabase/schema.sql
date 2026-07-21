@@ -104,8 +104,11 @@ create table public.requests (
   product_id uuid references public.products(id) on delete set null,
   -- Author's personal ordering across all their requests.
   priority integer not null default 0,
-  -- Dense 0..N-1 ordering within a (team_id, product_id) group.
+  -- Requester rank: dense 0..N-1 within a (team_id, product_id) group.
   team_priority integer not null default 0,
+  -- Workstream-owner rank: dense 0..N-1 within a product_id (all requests in
+  -- the workstream), set by the workstream's owning team.
+  workstream_priority integer not null default 0,
   state text not null default 'draft' check (state in ('draft','submitted')),
   submitted_at timestamptz,
   notion_url text,
@@ -117,6 +120,7 @@ create index requests_author_idx on public.requests(author_id);
 create index requests_state_idx on public.requests(state);
 create index requests_status_idx on public.requests(status_id);
 create index requests_team_priority_idx on public.requests (team_id, team_priority);
+create index requests_workstream_priority_idx on public.requests (product_id, workstream_priority);
 create index requests_product_id_idx on public.requests(product_id);
 create index requests_deadline_idx on public.requests(deadline);
 

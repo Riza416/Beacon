@@ -205,10 +205,18 @@ async function persistFormState(
   const productChanged = parsed.productId !== oldProductId;
 
   let nextTeamPriority: number | undefined;
+  let nextWorkstreamPriority: number | undefined;
   if (productChanged) {
+    // Reslot the requester rank in the new (team, product) group…
     nextTeamPriority = await priority.nextSlot(
       supabase,
       before?.team_id ?? null,
+      parsed.productId
+    );
+    // …and the workstream rank at the end of the new workstream (0 when the
+    // request now has no workstream).
+    nextWorkstreamPriority = await priority.nextWorkstreamSlot(
+      supabase,
       parsed.productId
     );
   }
@@ -222,12 +230,20 @@ async function persistFormState(
   if (nextTeamPriority !== undefined) {
     updates.team_priority = nextTeamPriority;
   }
+  if (nextWorkstreamPriority !== undefined) {
+    updates.workstream_priority = nextWorkstreamPriority;
+  }
 
   const { error: reqErr } = await supabase
     .from("requests")
     .update(updates)
     .eq("id", requestId);
   if (reqErr) throw new Error(reqErr.message);
+
+  // Close the gap the move left in the OLD workstream's ranking.
+  if (productChanged && oldProductId && oldProductId !== parsed.productId) {
+    await priority.compactWorkstream(supabase, oldProductId);
+  }
 
   // Load active field definitions to know how to interpret values
   const { data: fields, error: fdErr } = await supabase
@@ -566,12 +582,13 @@ export async function deleteRequest(requestId: string): Promise<void> {
   const { error } = await supabase.from("requests").delete().eq("id", requestId);
   if (error) throw new Error(error.message);
 
-  // Close the gap the deleted row left in its (team, product) priority group.
+  // Close the gap the deleted row left in both rankings it belonged to.
   await priority.compact(
     supabase,
     doomed?.team_id ?? null,
     doomed?.product_id ?? null
   );
+  await priority.compactWorkstream(supabase, doomed?.product_id ?? null);
 
   revalidatePath("/");
   revalidatePath("/requests/mine");
@@ -783,6 +800,58 @@ export async function setTeamPriority(
   await priority.resequence(
     admin,
     current.team_id,
+    current.product_id,
+    requestId,
+    Math.round(value)
+  );
+
+  revalidatePath("/");
+  return { ok: true };
+}
+
+/**
+ * Set a request's WORKSTREAM priority — the owning team's rank of the request
+ * across all requests in its workstream. Only a global admin or a team admin
+ * whose team owns the workstream may change it.
+ */
+export async function setWorkstreamPriority(
+  requestId: string,
+  value: number
+): Promise<{ ok: true }> {
+  if (!Number.isFinite(value) || value < 0 || value > 1_000_000) {
+    throw new Error("Priority must be a positive number");
+  }
+  const { supabase, profile } = await authedAction();
+
+  const { data: current, error: curErr } = await supabase
+    .from("requests")
+    .select("id, product_id")
+    .eq("id", requestId)
+    .maybeSingle();
+  if (curErr) throw new Error(curErr.message);
+  if (!current) throw new Error("Request not found");
+  if (!current.product_id) {
+    throw new Error("This request isn't in a workstream.");
+  }
+
+  // Authorize: global admin, or a team admin whose team owns this workstream.
+  let authorized = profile.role === "admin";
+  if (!authorized && profile.role === "team_admin" && profile.team_id) {
+    const { data: owns } = await supabase
+      .from("product_owners")
+      .select("team_id")
+      .eq("product_id", current.product_id)
+      .eq("team_id", profile.team_id)
+      .maybeSingle();
+    authorized = Boolean(owns);
+  }
+  if (!authorized) {
+    throw new Error("Only the workstream's owning team can set this priority.");
+  }
+
+  const admin = createAdminClient();
+  await priority.resequenceWorkstream(
+    admin,
     current.product_id,
     requestId,
     Math.round(value)

@@ -25,6 +25,7 @@ interface RequestRowJoined {
   state: "draft" | "submitted";
   priority: number;
   team_priority: number;
+  workstream_priority: number;
   team_id: string | null;
   product_id: string | null;
   status_id: string | null;
@@ -91,6 +92,7 @@ async function Dashboard({
     { data: teams },
     { data: products },
     { data: allAuthors },
+    { data: ownerRows },
   ] = await Promise.all([
     supabase
       .from("statuses")
@@ -111,7 +113,20 @@ async function Dashboard({
       .from("profiles")
       .select("id, full_name, email")
       .returns<{ id: string; full_name: string | null; email: string | null }[]>(),
+    supabase
+      .from("product_owners")
+      .select("product_id, team_id")
+      .returns<{ product_id: string; team_id: string }[]>(),
   ]);
+
+  // workstream (product) -> owning team ids. Drives who may edit a request's
+  // workstream priority.
+  const ownerTeamIdsByProduct = new Map<string, string[]>();
+  for (const o of ownerRows ?? []) {
+    const arr = ownerTeamIdsByProduct.get(o.product_id) ?? [];
+    arr.push(o.team_id);
+    ownerTeamIdsByProduct.set(o.product_id, arr);
+  }
 
   let baseQuery = supabase
     .from("requests")
@@ -144,22 +159,15 @@ async function Dashboard({
     .order("updated_at", { ascending: false })
     .returns<RequestRowJoined[]>();
 
-  // Team dependencies: which other teams each request is tagged on. Two
-  // shapes built from the same rows:
-  //  - dependenciesByTeam: teamId -> requestIds (so a team's dashboard
-  //    section can list every request it's tagged on)
+  // Team dependencies: which other teams each request is tagged on.
   //  - tagsByRequest: requestId -> teamIds (so a request row can render
   //    one badge per dependent team)
   const { data: tagRows } = await supabase
     .from("request_team_tags")
     .select("request_id, team_id")
     .returns<{ request_id: string; team_id: string }[]>();
-  const dependenciesByTeam = new Map<string, Set<string>>();
   const tagsByRequest = new Map<string, string[]>();
   for (const t of tagRows ?? []) {
-    const set = dependenciesByTeam.get(t.team_id) ?? new Set<string>();
-    set.add(t.request_id);
-    dependenciesByTeam.set(t.team_id, set);
     const arr = tagsByRequest.get(t.request_id) ?? [];
     arr.push(t.team_id);
     tagsByRequest.set(t.request_id, arr);
@@ -198,14 +206,30 @@ async function Dashboard({
     (r) => r.state === "submitted" && !r.status_id
   );
 
-  // Group by product. The base query is already ordered by team_priority
-  // ascending, so each group preserves its priority order.
+  // Group by workstream (product). Each workstream group is ONE flat list
+  // ordered by workstream_priority ascending (all requesting teams mixed
+  // together), then updated_at descending as a tie-break. The "No workstream"
+  // group has no workstream rank, so it's ordered by updated_at descending.
   const byProduct = new Map<string | null, RequestRowJoined[]>();
   for (const r of requests ?? []) {
     const key = r.product_id ?? null;
     const arr = byProduct.get(key) ?? [];
     arr.push(r);
     byProduct.set(key, arr);
+  }
+  for (const [key, arr] of byProduct.entries()) {
+    if (key === null) {
+      arr.sort(
+        (a, b) =>
+          new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+      );
+    } else {
+      arr.sort(
+        (a, b) =>
+          a.workstream_priority - b.workstream_priority ||
+          new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+      );
+    }
   }
   const orderedKeys: (string | null)[] = [];
   for (const p of products ?? []) {
@@ -301,6 +325,7 @@ async function Dashboard({
             statuses={statuses ?? []}
             isAdmin={isAdmin}
             profile={profile}
+            ownerTeamIdsByProduct={ownerTeamIdsByProduct}
           />
         </SectionCard>
       )}
@@ -330,43 +355,10 @@ async function Dashboard({
             {orderedKeys.map((productId) => {
               const rows = byProduct.get(productId) ?? [];
 
-              // Each team's section lists every request the team is on:
-              // requests it authored AND requests where it's tagged as an
-              // interdependent team. The same request appears under every
-              // team it touches. Dependency rows get a small "Dep" badge so
-              // the relationship is still legible.
-              const byTeamWithin = new Map<
-                string | null,
-                { row: RequestRowJoined; isDependency: boolean }[]
-              >();
-              for (const r of rows) {
-                // Author's team — the main owner.
-                const ownerKey = r.team_id ?? null;
-                const ownerArr = byTeamWithin.get(ownerKey) ?? [];
-                ownerArr.push({ row: r, isDependency: false });
-                byTeamWithin.set(ownerKey, ownerArr);
-              }
-              for (const [teamId, depIds] of dependenciesByTeam.entries()) {
-                for (const r of rows) {
-                  if (!depIds.has(r.id)) continue;
-                  if (r.team_id === teamId) continue; // already shown as owner
-                  const arr = byTeamWithin.get(teamId) ?? [];
-                  arr.push({ row: r, isDependency: true });
-                  byTeamWithin.set(teamId, arr);
-                }
-              }
-
-              const teamKeys: (string | null)[] = [];
-              for (const t of teams ?? []) {
-                if (byTeamWithin.has(t.id)) teamKeys.push(t.id);
-              }
-              if (byTeamWithin.has(null)) teamKeys.push(null);
-              const teamName = (id: string | null) =>
-                id === null
-                  ? "Unassigned"
-                  : (teams ?? []).find((t) => t.id === id)?.name ??
-                    "Unknown team";
-
+              // One flat list per workstream, ordered by workstream_priority
+              // (all requesting teams mixed together). The workstream rank is
+              // the row's primary position chip; the "No workstream" group has
+              // no such rank so its rows show no chip.
               return (
                 <div key={productId ?? "no-product"} className="space-y-3">
                   <h3 className="text-base font-medium">
@@ -375,58 +367,33 @@ async function Dashboard({
                       ({rows.length})
                     </span>
                   </h3>
-                  <div className="space-y-3">
-                    {teamKeys.map((teamId) => {
-                      const teamRows = byTeamWithin.get(teamId) ?? [];
-                      return (
-                        <div
-                          key={teamId ?? "unassigned-team"}
-                          className="space-y-2"
-                        >
-                          <h4 className="text-xs uppercase tracking-wide text-muted-foreground">
-                            {teamName(teamId)}
-                          </h4>
-                          <Card>
-                            <CardContent className="p-0">
-                              <ul className="divide-y">
-                                {teamRows.map((entry, idx) => {
-                                  // Priority chip only makes sense on rows
-                                  // this team authored; dependency rows have
-                                  // a priority scoped to another team.
-                                  const ownerIdx = teamRows
-                                    .slice(0, idx + 1)
-                                    .filter((e) => !e.isDependency).length;
-                                  return (
-                                    <RequestRowItem
-                                      key={`${entry.isDependency ? "dep-" : ""}${entry.row.id}`}
-                                      row={entry.row}
-                                      statuses={statuses ?? []}
-                                      position={
-                                        entry.isDependency
-                                          ? undefined
-                                          : ownerIdx
-                                      }
-                                      isAdmin={isAdmin}
-                                      profile={profile}
-                                      hideControls={entry.isDependency}
-                                      taggedTeams={(
-                                        tagsByRequest.get(entry.row.id) ?? []
-                                      ).flatMap((tid) => {
-                                        const name = teamNameById.get(tid);
-                                        return name
-                                          ? [{ id: tid, name }]
-                                          : [];
-                                      })}
-                                    />
-                                  );
-                                })}
-                              </ul>
-                            </CardContent>
-                          </Card>
-                        </div>
-                      );
-                    })}
-                  </div>
+                  <Card>
+                    <CardContent className="p-0">
+                      <ul className="divide-y">
+                        {rows.map((r) => (
+                          <RequestRowItem
+                            key={r.id}
+                            row={r}
+                            statuses={statuses ?? []}
+                            position={
+                              productId === null
+                                ? undefined
+                                : r.workstream_priority + 1
+                            }
+                            isAdmin={isAdmin}
+                            profile={profile}
+                            ownerTeamIdsByProduct={ownerTeamIdsByProduct}
+                            taggedTeams={(
+                              tagsByRequest.get(r.id) ?? []
+                            ).flatMap((tid) => {
+                              const name = teamNameById.get(tid);
+                              return name ? [{ id: tid, name }] : [];
+                            })}
+                          />
+                        ))}
+                      </ul>
+                    </CardContent>
+                  </Card>
                 </div>
               );
             })}
@@ -537,6 +504,7 @@ function RequestList({
   isAdmin,
   profile,
   showPosition = true,
+  ownerTeamIdsByProduct,
 }: {
   rows: RequestRowJoined[];
   statuses: Status[];
@@ -545,6 +513,7 @@ function RequestList({
   isAdmin: boolean;
   profile: Profile;
   showPosition?: boolean;
+  ownerTeamIdsByProduct?: Map<string, string[]>;
 }) {
   return (
     <Card>
@@ -560,6 +529,7 @@ function RequestList({
               hideControls={hideControls}
               isAdmin={isAdmin}
               profile={profile}
+              ownerTeamIdsByProduct={ownerTeamIdsByProduct}
             />
           ))}
         </ul>
@@ -577,6 +547,7 @@ function RequestRowItem({
   isAdmin,
   profile,
   taggedTeams = [],
+  ownerTeamIdsByProduct,
 }: {
   row: RequestRowJoined;
   statuses: Status[];
@@ -587,15 +558,27 @@ function RequestRowItem({
   profile: Profile;
   /** Teams tagged on this request as dependencies (excluding the owner). */
   taggedTeams?: { id: string; name: string }[];
+  /** workstream (product) id -> owning team ids, for workstream-edit rights. */
+  ownerTeamIdsByProduct?: Map<string, string[]>;
 }) {
-  // Global admins can edit everything. A team admin can reorder priority on
-  // their own team's rows (server-enforced in setTeamPriority) but never set
-  // status. Dependency rows never show controls.
+  // Global admins can edit everything. A team admin can reorder the requester
+  // priority on their own team's rows (server-enforced in setTeamPriority) and
+  // the workstream priority on any workstream their team owns; they never set
+  // status. Dependency / read-only rows never show controls.
   const canEditStatus = isAdmin;
-  const canEditPriority =
+  const canEditRequester =
     isAdmin ||
     (profile.role === "team_admin" && r.team_id === profile.team_id);
-  const showControls = canEditPriority && !hideControls;
+  const canEditWorkstream =
+    isAdmin ||
+    (profile.role === "team_admin" &&
+      r.product_id != null &&
+      (ownerTeamIdsByProduct?.get(r.product_id)?.includes(
+        profile.team_id ?? ""
+      ) ??
+        false));
+  const showControls =
+    (canEditRequester || canEditWorkstream || canEditStatus) && !hideControls;
   return (
     <li
       className={`flex flex-wrap items-center gap-3 ${compact ? "p-3" : "p-4"}`}
@@ -686,9 +669,11 @@ function RequestRowItem({
           requestId={r.id}
           currentStatusId={r.status_id}
           currentPriority={r.team_priority}
+          currentWorkstreamPriority={r.workstream_priority}
           statuses={statuses}
           canEditStatus={canEditStatus}
-          canEditPriority={canEditPriority}
+          canEditRequester={canEditRequester}
+          canEditWorkstream={canEditWorkstream}
         />
       )}
     </li>

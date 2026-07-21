@@ -368,6 +368,7 @@ export type Database = {
           team_priority: number;
           product_id: string | null;
           deadline: string | null;
+          workstream_priority: number;
         };
         Insert: {
           id?: string;
@@ -385,6 +386,7 @@ export type Database = {
           team_priority?: number;
           product_id?: string | null;
           deadline?: string | null;
+          workstream_priority?: number;
         };
         Update: {
           id?: string;
@@ -402,6 +404,7 @@ export type Database = {
           team_priority?: number;
           product_id?: string | null;
           deadline?: string | null;
+          workstream_priority?: number;
         };
         Relationships: [
           {
