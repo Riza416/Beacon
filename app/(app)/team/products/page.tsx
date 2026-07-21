@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireTeamManager } from "@/lib/auth";
+import { requireProductManager } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,7 +22,7 @@ import { TeamProductDialog } from "./_components/team-product-dialog";
 import { DeleteTeamProductButton } from "./_components/delete-team-product-button";
 
 export default async function TeamProductsPage() {
-  const profile = await requireTeamManager();
+  const profile = await requireProductManager();
   const teamId = profile.team_id;
 
   // Global admins have no single team scope — send them to the admin catalog.
@@ -53,42 +53,30 @@ export default async function TeamProductsPage() {
 
   const { data: team } = await supabase
     .from("teams")
-    .select("name, can_manage_products")
+    .select("name")
     .eq("id", teamId)
-    .maybeSingle<Pick<Team, "name" | "can_manage_products">>();
+    .maybeSingle<Pick<Team, "name">>();
 
+  // Team admins always reach here; regular members only when their team admin
+  // granted them the capability. requireProductManager() already enforced that,
+  // so no per-team grant check is needed.
+  const isTeamAdmin = profile.role === "team_admin";
   const headerContent = (
     <div className="space-y-1">
-      <Link
-        href="/team"
-        className="text-sm text-muted-foreground hover:text-foreground"
-      >
-        ← Back to team
-      </Link>
+      {isTeamAdmin ? (
+        <Link
+          href="/team"
+          className="text-sm text-muted-foreground hover:text-foreground"
+        >
+          ← Back to team
+        </Link>
+      ) : null}
       <h1 className="text-2xl font-semibold tracking-tight">Products</h1>
       {team?.name ? (
         <p className="text-sm text-muted-foreground">{team.name}</p>
       ) : null}
     </div>
   );
-
-  // The grant is required before a team may touch the catalog at all.
-  if (!team?.can_manage_products) {
-    return (
-      <div className="space-y-8">
-        <header>{headerContent}</header>
-        <Card>
-          <CardHeader>
-            <CardTitle>Product management not enabled</CardTitle>
-            <CardDescription>
-              Your team hasn&rsquo;t been granted product management yet. Ask a
-              global admin to enable it.
-            </CardDescription>
-          </CardHeader>
-        </Card>
-      </div>
-    );
-  }
 
   // Products this team owns: resolve owned ids, then fetch the products.
   const { data: ownerRows } = await supabase

@@ -23,6 +23,7 @@ import type { Profile, Team } from "@/lib/types";
 import { InviteMemberDialog } from "./_components/invite-member-dialog";
 import { AddExistingMemberDialog } from "./_components/add-existing-member-dialog";
 import { RemoveMemberButton } from "./_components/remove-member-button";
+import { MemberProductPermissionToggle } from "./_components/member-product-permission-toggle";
 
 export default async function TeamPage() {
   const profile = await requireTeamManager();
@@ -63,10 +64,15 @@ export default async function TeamPage() {
 
   const { data: members } = await supabase
     .from("profiles")
-    .select("id, full_name, email, role")
+    .select("id, full_name, email, role, can_manage_products")
     .eq("team_id", teamId)
     .order("full_name", { ascending: true })
-    .returns<Pick<Profile, "id" | "full_name" | "email" | "role">[]>();
+    .returns<
+      Pick<
+        Profile,
+        "id" | "full_name" | "email" | "role" | "can_manage_products"
+      >[]
+    >();
 
   const candidates = await searchAddableUsers(teamId);
 
@@ -84,11 +90,9 @@ export default async function TeamPage() {
             {team?.description || "Manage the people on your team."}
           </p>
         </div>
-        {team?.can_manage_products && (
-          <Button asChild variant="outline">
-            <Link href="/team/products">Manage products</Link>
-          </Button>
-        )}
+        <Button asChild variant="outline">
+          <Link href="/team/products">Manage products</Link>
+        </Button>
       </header>
 
       <section className="space-y-3">
@@ -115,42 +119,59 @@ export default async function TeamPage() {
                     <TableHead>Name</TableHead>
                     <TableHead>Email</TableHead>
                     <TableHead>Role</TableHead>
+                    <TableHead>Products</TableHead>
                     <TableHead className="w-32 text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {members.map((m) => (
-                    <TableRow key={m.id}>
-                      <TableCell className="font-medium">
-                        {m.full_name || "Unnamed"}
-                        {m.id === profile.id && (
-                          <span className="ml-2 text-xs text-muted-foreground">
-                            (you)
-                          </span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {m.email}
-                      </TableCell>
-                      <TableCell>
-                        {m.role === "team_admin" ? (
-                          <Badge>Team admin</Badge>
-                        ) : m.role === "admin" ? (
-                          <Badge variant="secondary">Admin</Badge>
-                        ) : (
-                          <Badge variant="outline">Member</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {m.id !== profile.id && (
-                          <RemoveMemberButton
-                            teamId={teamId}
-                            profileId={m.id}
-                          />
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {members.map((m) => {
+                    const managesProducts =
+                      m.role === "admin" || m.role === "team_admin";
+                    return (
+                      <TableRow key={m.id}>
+                        <TableCell className="font-medium">
+                          {m.full_name || "Unnamed"}
+                          {m.id === profile.id && (
+                            <span className="ml-2 text-xs text-muted-foreground">
+                              (you)
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {m.email}
+                        </TableCell>
+                        <TableCell>
+                          {m.role === "team_admin" ? (
+                            <Badge>Team admin</Badge>
+                          ) : m.role === "admin" ? (
+                            <Badge variant="secondary">Admin</Badge>
+                          ) : (
+                            <Badge variant="outline">Member</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {managesProducts ? (
+                            <span className="text-xs text-muted-foreground">
+                              Always
+                            </span>
+                          ) : (
+                            <MemberProductPermissionToggle
+                              profileId={m.id}
+                              canManageProducts={m.can_manage_products}
+                            />
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {m.id !== profile.id && (
+                            <RemoveMemberButton
+                              teamId={teamId}
+                              profileId={m.id}
+                            />
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             )}

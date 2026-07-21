@@ -39,15 +39,29 @@ export async function requireAdmin(): Promise<Profile> {
 }
 
 /**
- * Page guard for the /team area: allow global admins and team admins.
- * Team admins must actually be on a team (their scope). Regular users are
- * redirected to /forbidden.
+ * Page guard for the /team area (managing people): global admins and team
+ * admins only. Team admins must be on a team. Regular users -> /forbidden.
  */
 export async function requireTeamManager(): Promise<Profile> {
   const profile = await requireProfile();
   const ok =
     profile.role === "admin" ||
     (profile.role === "team_admin" && profile.team_id !== null);
+  if (!ok) redirect("/forbidden");
+  return profile;
+}
+
+/**
+ * Page guard for /team/products: global admins, team admins, and members
+ * their team admin has granted product management. Non-admins must be on a
+ * team (the scope of what they can manage).
+ */
+export async function requireProductManager(): Promise<Profile> {
+  const profile = await requireProfile();
+  const ok =
+    profile.role === "admin" ||
+    (profile.team_id !== null &&
+      (profile.role === "team_admin" || profile.can_manage_products));
   if (!ok) redirect("/forbidden");
   return profile;
 }

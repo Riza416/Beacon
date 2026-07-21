@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { authedAction } from "@/lib/actions/utils";
+import { authedAction, canManageProducts } from "@/lib/actions/utils";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Database } from "@/lib/database.types";
 import type { Profile } from "@/lib/types";
@@ -36,21 +36,7 @@ function friendlyProductError(
   return new Error(err.message);
 }
 
-/** Does this team_admin's team hold the product-management grant? */
-async function teamCanManageProducts(
-  admin: DB,
-  teamId: string | null
-): Promise<boolean> {
-  if (!teamId) return false;
-  const { data } = await admin
-    .from("teams")
-    .select("can_manage_products")
-    .eq("id", teamId)
-    .maybeSingle();
-  return Boolean(data?.can_manage_products);
-}
-
-/** True if a team_admin's team owns the given product. */
+/** True if `teamId` owns the given product. */
 async function teamOwnsProduct(
   admin: DB,
   teamId: string | null,
@@ -68,9 +54,9 @@ async function teamOwnsProduct(
 
 /**
  * Authorize a product mutation and return a service-role client + the caller.
- * - Global admins: always allowed.
- * - Team admins: only if their team holds the can_manage_products grant, AND
- *   (for edit/delete) their team owns the product.
+ * - Global admins: always allowed (any product).
+ * - Team admins + members their team admin has granted: allowed for products
+ *   OWNED BY THEIR TEAM (and, on create, the product is auto-owned by it).
  */
 async function authorizeProductWrite(opts: {
   productId?: string;
@@ -79,11 +65,8 @@ async function authorizeProductWrite(opts: {
   if (profile.role === "admin") {
     return { profile, admin: createAdminClient() };
   }
-  if (profile.role === "team_admin") {
+  if (canManageProducts(profile) && profile.team_id) {
     const admin = createAdminClient();
-    if (!(await teamCanManageProducts(admin, profile.team_id))) {
-      throw new Error("Your team isn't allowed to manage products.");
-    }
     if (opts.productId) {
       if (!(await teamOwnsProduct(admin, profile.team_id, opts.productId))) {
         throw new Error("Your team doesn't own this product.");
@@ -91,7 +74,7 @@ async function authorizeProductWrite(opts: {
     }
     return { profile, admin };
   }
-  throw new Error("Not allowed.");
+  throw new Error("You aren't allowed to manage products.");
 }
 
 /** Replace product_owners for a product with exactly `teamIds`. */

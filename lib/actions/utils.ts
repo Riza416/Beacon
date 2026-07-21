@@ -42,6 +42,19 @@ export function canManageTeam(profile: Profile, teamId: string | null): boolean 
 }
 
 /**
+ * True if `profile` may create/edit products (for their own team, unless a
+ * global admin). Global admins and team admins always can; a regular member
+ * can when their team admin has granted them the capability.
+ */
+export function canManageProducts(profile: Profile): boolean {
+  return (
+    profile.role === "admin" ||
+    profile.role === "team_admin" ||
+    profile.can_manage_products === true
+  );
+}
+
+/**
  * Authorize a mutation scoped to `teamId`. Returns the caller's profile plus a
  * service-role client for the privileged write. Throws if the caller is
  * neither a global admin nor the team's admin.

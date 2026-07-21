@@ -55,6 +55,10 @@ export default async function Nav() {
 
   const isAdmin = profile.role === "admin";
   const isTeamAdmin = profile.role === "team_admin";
+  // Regular members who've been granted product management get a Products link.
+  const canManageTeamProducts =
+    profile.team_id !== null &&
+    (isTeamAdmin || profile.can_manage_products === true);
   const unread = await countUnreadTags(profile.id, profile.team_id);
 
   return (
@@ -77,6 +81,11 @@ export default async function Nav() {
             {isTeamAdmin && (
               <Link href="/team" className="text-muted-foreground hover:text-foreground">
                 My team
+              </Link>
+            )}
+            {!isAdmin && !isTeamAdmin && canManageTeamProducts && (
+              <Link href="/team/products" className="text-muted-foreground hover:text-foreground">
+                Products
               </Link>
             )}
             {isAdmin && (

@@ -19,7 +19,6 @@ import { AddMemberDialog } from "../_components/add-member-dialog";
 import { RemoveMemberButton } from "../_components/remove-member-button";
 import { DeleteTeamButton } from "../_components/delete-team-button";
 import { MemberRoleControls } from "../_components/member-role-controls";
-import { TeamProductPermissionToggle } from "../_components/team-product-permission-toggle";
 
 interface TeamRequestRow {
   id: string;
@@ -112,10 +111,6 @@ export default async function TeamDetailPage({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <TeamProductPermissionToggle
-            teamId={team.id}
-            canManageProducts={team.can_manage_products}
-          />
           <EditTeamDialog team={team} />
           <DeleteTeamButton teamId={team.id} teamName={team.name} />
         </div>

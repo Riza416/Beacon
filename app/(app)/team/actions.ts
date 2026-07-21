@@ -118,6 +118,39 @@ export async function removeMember(
   return { ok: true };
 }
 
+/**
+ * Team admin (or global admin) grants/revokes a member's product-management
+ * capability. The target must be on the manager's team. team_admins and global
+ * admins already manage products, so this is meant for regular members.
+ */
+export async function setMemberProductPermission(
+  profileId: string,
+  canManage: boolean
+): Promise<{ ok: true }> {
+  const pId = uuidSchema.parse(profileId);
+  const { supabase } = await authedAction();
+
+  // Resolve the target's team (reads are open) to know which team to authorize
+  // against, then require that the caller manages that team.
+  const { data: target, error: readErr } = await supabase
+    .from("profiles")
+    .select("team_id")
+    .eq("id", pId)
+    .maybeSingle();
+  if (readErr) throw new Error(readErr.message);
+  if (!target?.team_id) throw new Error("That person isn't on a team.");
+
+  const { admin } = await requireTeamManager(target.team_id);
+  const { error } = await admin
+    .from("profiles")
+    .update({ can_manage_products: canManage })
+    .eq("id", pId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/team");
+  return { ok: true };
+}
+
 /** Candidate users a manager can add to their team (unassigned or other team). */
 export async function searchAddableUsers(
   teamId: string

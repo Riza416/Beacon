@@ -120,17 +120,3 @@ export async function setMemberTeamAdmin(formData: FormData) {
   revalidatePath(`/admin/teams/${teamId}`);
 }
 
-/** Global-admin only: grant/revoke a team's ability to manage products. */
-export async function setTeamProductPermission(formData: FormData) {
-  const { supabase } = await adminAction();
-  const teamId = String(formData.get("teamId") ?? "");
-  const canManage = String(formData.get("canManage") ?? "") === "true";
-  if (!teamId) throw new Error("Team id required");
-  const { error } = await supabase
-    .from("teams")
-    .update({ can_manage_products: canManage })
-    .eq("id", teamId);
-  if (error) throw new Error(error.message);
-  revalidatePath(`/admin/teams/${teamId}`);
-  revalidatePath("/team/products");
-}
