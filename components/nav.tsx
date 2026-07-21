@@ -55,10 +55,13 @@ export default async function Nav() {
 
   const isAdmin = profile.role === "admin";
   const isTeamAdmin = profile.role === "team_admin";
-  // Regular members who've been granted product management get a Products link.
+  // Regular members granted any product permission get a Products link.
   const canManageTeamProducts =
     profile.team_id !== null &&
-    (isTeamAdmin || profile.can_manage_products === true);
+    (isTeamAdmin ||
+      profile.can_create_products ||
+      profile.can_edit_products ||
+      profile.can_delete_products);
   const unread = await countUnreadTags(profile.id, profile.team_id);
 
   return (

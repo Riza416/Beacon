@@ -47,10 +47,11 @@ create table public.profiles (
   email text,
   role text not null default 'user' check (role in ('admin', 'team_admin', 'user')),
   team_id uuid references public.teams(id) on delete set null,
-  -- Per-member grant: may this user manage their team's products?
-  -- Team admins can toggle this for their members; team admins/global admins
-  -- always can regardless of this flag.
-  can_manage_products boolean not null default false,
+  -- Per-member product permissions (team's own products). Team admins toggle
+  -- these for members; team admins/global admins always can regardless.
+  can_create_products boolean not null default false,
+  can_edit_products boolean not null default false,
+  can_delete_products boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

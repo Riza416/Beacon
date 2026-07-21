@@ -64,13 +64,21 @@ export default async function TeamPage() {
 
   const { data: members } = await supabase
     .from("profiles")
-    .select("id, full_name, email, role, can_manage_products")
+    .select(
+      "id, full_name, email, role, can_create_products, can_edit_products, can_delete_products"
+    )
     .eq("team_id", teamId)
     .order("full_name", { ascending: true })
     .returns<
       Pick<
         Profile,
-        "id" | "full_name" | "email" | "role" | "can_manage_products"
+        | "id"
+        | "full_name"
+        | "email"
+        | "role"
+        | "can_create_products"
+        | "can_edit_products"
+        | "can_delete_products"
       >[]
     >();
 
@@ -152,12 +160,14 @@ export default async function TeamPage() {
                         <TableCell>
                           {managesProducts ? (
                             <span className="text-xs text-muted-foreground">
-                              Always
+                              Full access
                             </span>
                           ) : (
                             <MemberProductPermissionToggle
                               profileId={m.id}
-                              canManageProducts={m.can_manage_products}
+                              canCreate={m.can_create_products}
+                              canEdit={m.can_edit_products}
+                              canDelete={m.can_delete_products}
                             />
                           )}
                         </TableCell>

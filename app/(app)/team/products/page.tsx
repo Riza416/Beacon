@@ -1,5 +1,10 @@
 import Link from "next/link";
 import { requireProductManager } from "@/lib/auth";
+import {
+  canCreateProducts,
+  canEditProducts,
+  canDeleteProducts,
+} from "@/lib/actions/utils";
 import { createClient } from "@/lib/supabase/server";
 import { Button } from "@/components/ui/button";
 import {
@@ -61,6 +66,9 @@ export default async function TeamProductsPage() {
   // granted them the capability. requireProductManager() already enforced that,
   // so no per-team grant check is needed.
   const isTeamAdmin = profile.role === "team_admin";
+  const mayCreate = canCreateProducts(profile);
+  const mayEdit = canEditProducts(profile);
+  const mayDelete = canDeleteProducts(profile);
   const headerContent = (
     <div className="space-y-1">
       {isTeamAdmin ? (
@@ -101,10 +109,12 @@ export default async function TeamProductsPage() {
     <div className="space-y-8">
       <header className="flex flex-wrap items-end justify-between gap-4">
         {headerContent}
-        <TeamProductDialog
-          mode="create"
-          trigger={<Button>Add product</Button>}
-        />
+        {mayCreate && (
+          <TeamProductDialog
+            mode="create"
+            trigger={<Button>Add product</Button>}
+          />
+        )}
       </header>
 
       <Card>
@@ -113,8 +123,9 @@ export default async function TeamProductsPage() {
             <div className="flex flex-col items-center gap-3 p-8 text-center sm:p-12">
               <p className="text-base font-medium">No products yet</p>
               <p className="max-w-sm text-sm text-muted-foreground">
-                Add the products your team takes requests for. Use the
-                &ldquo;Add product&rdquo; button above to start.
+                {mayCreate
+                  ? "Add the products your team takes requests for."
+                  : "Your team hasn't added any products yet."}
               </p>
             </div>
           ) : (
@@ -123,7 +134,9 @@ export default async function TeamProductsPage() {
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Description</TableHead>
-                  <TableHead className="w-40 text-right">Actions</TableHead>
+                  {(mayEdit || mayDelete) && (
+                    <TableHead className="w-40 text-right">Actions</TableHead>
+                  )}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -133,23 +146,29 @@ export default async function TeamProductsPage() {
                     <TableCell className="text-sm text-muted-foreground">
                       {p.description ?? "—"}
                     </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <TeamProductDialog
-                          mode="edit"
-                          product={p}
-                          trigger={
-                            <Button variant="outline" size="sm">
-                              Edit
-                            </Button>
-                          }
-                        />
-                        <DeleteTeamProductButton
-                          productId={p.id}
-                          productName={p.name}
-                        />
-                      </div>
-                    </TableCell>
+                    {(mayEdit || mayDelete) && (
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          {mayEdit && (
+                            <TeamProductDialog
+                              mode="edit"
+                              product={p}
+                              trigger={
+                                <Button variant="outline" size="sm">
+                                  Edit
+                                </Button>
+                              }
+                            />
+                          )}
+                          {mayDelete && (
+                            <DeleteTeamProductButton
+                              productId={p.id}
+                              productName={p.name}
+                            />
+                          )}
+                        </div>
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>

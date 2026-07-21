@@ -41,16 +41,36 @@ export function canManageTeam(profile: Profile, teamId: string | null): boolean 
   return false;
 }
 
-/**
- * True if `profile` may create/edit products (for their own team, unless a
- * global admin). Global admins and team admins always can; a regular member
- * can when their team admin has granted them the capability.
- */
-export function canManageProducts(profile: Profile): boolean {
+// Per-operation product capabilities. Global admins and team admins always
+// have all three; a regular member has each only if their team admin granted
+// it. (Team scope — which products — is enforced separately by ownership.)
+export function canCreateProducts(profile: Profile): boolean {
   return (
     profile.role === "admin" ||
     profile.role === "team_admin" ||
-    profile.can_manage_products === true
+    profile.can_create_products === true
+  );
+}
+export function canEditProducts(profile: Profile): boolean {
+  return (
+    profile.role === "admin" ||
+    profile.role === "team_admin" ||
+    profile.can_edit_products === true
+  );
+}
+export function canDeleteProducts(profile: Profile): boolean {
+  return (
+    profile.role === "admin" ||
+    profile.role === "team_admin" ||
+    profile.can_delete_products === true
+  );
+}
+/** May the user reach the product-management area at all (any capability)? */
+export function canAccessProducts(profile: Profile): boolean {
+  return (
+    canCreateProducts(profile) ||
+    canEditProducts(profile) ||
+    canDeleteProducts(profile)
   );
 }
 

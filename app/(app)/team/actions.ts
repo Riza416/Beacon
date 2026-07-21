@@ -119,13 +119,14 @@ export async function removeMember(
 }
 
 /**
- * Team admin (or global admin) grants/revokes a member's product-management
- * capability. The target must be on the manager's team. team_admins and global
- * admins already manage products, so this is meant for regular members.
+ * Team admin (or global admin) grants/revokes a member's product permissions,
+ * as three independent capabilities (create / edit / delete). The target must
+ * be on the manager's team. team_admins and global admins always have all
+ * three, so this is meant for regular members.
  */
-export async function setMemberProductPermission(
+export async function setMemberProductPermissions(
   profileId: string,
-  canManage: boolean
+  perms: { create: boolean; edit: boolean; delete: boolean }
 ): Promise<{ ok: true }> {
   const pId = uuidSchema.parse(profileId);
   const { supabase } = await authedAction();
@@ -143,7 +144,11 @@ export async function setMemberProductPermission(
   const { admin } = await requireTeamManager(target.team_id);
   const { error } = await admin
     .from("profiles")
-    .update({ can_manage_products: canManage })
+    .update({
+      can_create_products: perms.create,
+      can_edit_products: perms.edit,
+      can_delete_products: perms.delete,
+    })
     .eq("id", pId);
   if (error) throw new Error(error.message);
 

@@ -58,10 +58,14 @@ export async function requireTeamManager(): Promise<Profile> {
  */
 export async function requireProductManager(): Promise<Profile> {
   const profile = await requireProfile();
+  const hasAnyGrant =
+    profile.can_create_products ||
+    profile.can_edit_products ||
+    profile.can_delete_products;
   const ok =
     profile.role === "admin" ||
     (profile.team_id !== null &&
-      (profile.role === "team_admin" || profile.can_manage_products));
+      (profile.role === "team_admin" || hasAnyGrant));
   if (!ok) redirect("/forbidden");
   return profile;
 }

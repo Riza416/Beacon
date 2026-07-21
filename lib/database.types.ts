@@ -111,7 +111,9 @@ export type Database = {
           team_id: string | null;
           created_at: string;
           updated_at: string;
-          can_manage_products: boolean;
+          can_create_products: boolean;
+          can_edit_products: boolean;
+          can_delete_products: boolean;
         };
         Insert: {
           id: string;
@@ -121,7 +123,9 @@ export type Database = {
           team_id?: string | null;
           created_at?: string;
           updated_at?: string;
-          can_manage_products?: boolean;
+          can_create_products?: boolean;
+          can_edit_products?: boolean;
+          can_delete_products?: boolean;
         };
         Update: {
           id?: string;
@@ -131,7 +135,9 @@ export type Database = {
           team_id?: string | null;
           created_at?: string;
           updated_at?: string;
-          can_manage_products?: boolean;
+          can_create_products?: boolean;
+          can_edit_products?: boolean;
+          can_delete_products?: boolean;
         };
         Relationships: [
           {
