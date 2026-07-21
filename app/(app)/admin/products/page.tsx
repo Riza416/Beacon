@@ -57,7 +57,7 @@ export default async function AdminProductsPage() {
     <div className="space-y-8">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Products</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Workstreams</h1>
           <p className="text-sm text-muted-foreground">
             The catalog the request form lets authors pick from.
           </p>
@@ -65,7 +65,7 @@ export default async function AdminProductsPage() {
         <ProductDialog
           mode="create"
           teams={teams ?? []}
-          trigger={<Button>Add product</Button>}
+          trigger={<Button>Add workstream</Button>}
         />
       </header>
 
@@ -73,10 +73,10 @@ export default async function AdminProductsPage() {
         <CardContent className="p-0">
           {!products || products.length === 0 ? (
             <div className="flex flex-col items-center gap-3 p-8 text-center sm:p-12">
-              <p className="text-base font-medium">No products yet</p>
+              <p className="text-base font-medium">No workstreams yet</p>
               <p className="max-w-sm text-sm text-muted-foreground">
-                Add the products your org takes requests for. Use the
-                &ldquo;Add product&rdquo; button above to start.
+                Add the workstreams your org takes requests for. Use the
+                &ldquo;Add workstream&rdquo; button above to start.
               </p>
             </div>
           ) : (

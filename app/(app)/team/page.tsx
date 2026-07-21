@@ -99,7 +99,7 @@ export default async function TeamPage() {
           </p>
         </div>
         <Button asChild variant="outline">
-          <Link href="/team/products">Manage products</Link>
+          <Link href="/team/products">Manage workstreams</Link>
         </Button>
       </header>
 
@@ -127,7 +127,7 @@ export default async function TeamPage() {
                     <TableHead>Name</TableHead>
                     <TableHead>Email</TableHead>
                     <TableHead>Role</TableHead>
-                    <TableHead>Products</TableHead>
+                    <TableHead>Workstreams</TableHead>
                     <TableHead className="w-32 text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>

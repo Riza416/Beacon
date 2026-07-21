@@ -32,7 +32,7 @@ export function DeleteTeamProductButton({
     startTransition(async () => {
       try {
         await deleteProduct(fd);
-        toast.success("Product deleted");
+        toast.success("Workstream deleted");
         setOpen(false);
         router.refresh();
       } catch (err) {
@@ -51,10 +51,10 @@ export function DeleteTeamProductButton({
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Delete product</DialogTitle>
+          <DialogTitle>Delete workstream</DialogTitle>
           <DialogDescription>
             Delete &ldquo;{productName}&rdquo;? Any requests pointing to it will
-            have their product cleared (set to none).
+            have their workstream cleared (set to none).
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>

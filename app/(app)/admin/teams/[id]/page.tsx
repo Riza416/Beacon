@@ -175,7 +175,7 @@ export default async function TeamDetailPage({
                   <TableRow>
                     <TableHead>Name</TableHead>
                     <TableHead>Email</TableHead>
-                    <TableHead>Products</TableHead>
+                    <TableHead>Workstreams</TableHead>
                     <TableHead className="text-right">Role</TableHead>
                     <TableHead className="w-32 text-right">Actions</TableHead>
                   </TableRow>
@@ -245,7 +245,7 @@ function RequestTable({
         <TableRow>
           {showPriority && <TableHead className="w-16">Priority</TableHead>}
           <TableHead>Title</TableHead>
-          <TableHead>Product</TableHead>
+          <TableHead>Workstream</TableHead>
           <TableHead>Status</TableHead>
           <TableHead>Author</TableHead>
           <TableHead className="w-40">Updated</TableHead>

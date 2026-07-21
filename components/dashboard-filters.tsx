@@ -58,11 +58,11 @@ export function DashboardFilters({
 
       <Select value={product} onValueChange={(v) => update("product", v)}>
         <SelectTrigger className="h-8 w-[170px] text-xs">
-          <SelectValue placeholder="Product" />
+          <SelectValue placeholder="Workstream" />
         </SelectTrigger>
         <SelectContent>
           <SelectItem value={ALL} className="text-xs">
-            All products
+            All workstreams
           </SelectItem>
           {products.map((p) => (
             <SelectItem key={p.id} value={p.id} className="text-xs">
@@ -70,7 +70,7 @@ export function DashboardFilters({
             </SelectItem>
           ))}
           <SelectItem value={UNASSIGNED} className="text-xs">
-            No product
+            No workstream
           </SelectItem>
         </SelectContent>
       </Select>

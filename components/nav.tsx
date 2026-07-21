@@ -88,7 +88,7 @@ export default async function Nav() {
             )}
             {!isAdmin && !isTeamAdmin && canManageTeamProducts && (
               <Link href="/team/products" className="text-muted-foreground hover:text-foreground">
-                Products
+                Workstreams
               </Link>
             )}
             {isAdmin && (
@@ -97,7 +97,7 @@ export default async function Nav() {
                   Teams
                 </Link>
                 <Link href="/admin/products" className="text-muted-foreground hover:text-foreground">
-                  Products
+                  Workstreams
                 </Link>
                 <Link href="/admin/requirements" className="text-muted-foreground hover:text-foreground">
                   Fields

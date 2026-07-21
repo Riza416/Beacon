@@ -40,12 +40,12 @@ export function TeamProductDialog({
       try {
         if (mode === "create") await createProduct(formData);
         else await updateProduct(formData);
-        toast.success(mode === "create" ? "Product created" : "Product updated");
+        toast.success(mode === "create" ? "Workstream created" : "Workstream updated");
         setOpen(false);
         router.refresh();
       } catch (err) {
         const message =
-          err instanceof Error ? err.message : "Could not save product";
+          err instanceof Error ? err.message : "Could not save workstream";
         toast.error(message);
       }
     });
@@ -57,10 +57,10 @@ export function TeamProductDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            {mode === "create" ? "Add product" : "Edit product"}
+            {mode === "create" ? "Add workstream" : "Edit workstream"}
           </DialogTitle>
           <DialogDescription>
-            Products your team owns show up in the request form for authors to
+            Workstreams your team owns show up in the request form for authors to
             pick from.
           </DialogDescription>
         </DialogHeader>

@@ -59,11 +59,11 @@ export function ProductDialog({
       try {
         if (mode === "create") await createProduct(formData);
         else await updateProduct(formData);
-        toast.success(mode === "create" ? "Product created" : "Product updated");
+        toast.success(mode === "create" ? "Workstream created" : "Workstream updated");
         setOpen(false);
       } catch (err) {
         const message =
-          err instanceof Error ? err.message : "Could not save product";
+          err instanceof Error ? err.message : "Could not save workstream";
         toast.error(message);
       }
     });
@@ -75,10 +75,10 @@ export function ProductDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            {mode === "create" ? "Add product" : "Edit product"}
+            {mode === "create" ? "Add workstream" : "Edit workstream"}
           </DialogTitle>
           <DialogDescription>
-            Products are the catalog authors pick from when creating a request.
+            Workstreams are the catalog authors pick from when creating a request.
           </DialogDescription>
         </DialogHeader>
         <form action={onSubmit} className="space-y-4">
@@ -104,7 +104,7 @@ export function ProductDialog({
           <div className="space-y-2">
             <Label>Owning teams</Label>
             <p className="text-xs text-muted-foreground">
-              Teams responsible for this product.
+              Teams responsible for this workstream.
             </p>
             {teams.length === 0 ? (
               <p className="text-xs text-muted-foreground">

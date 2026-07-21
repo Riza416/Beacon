@@ -399,16 +399,16 @@ export function RequestForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="product">Product</Label>
+        <Label htmlFor="product">Workstream</Label>
         <Select
           value={productId ?? "__none__"}
           onValueChange={(v) => setProductId(v === "__none__" ? null : v)}
         >
           <SelectTrigger id="product">
-            <SelectValue placeholder="Pick a product" />
+            <SelectValue placeholder="Pick a workstream" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="__none__">No product</SelectItem>
+            <SelectItem value="__none__">No workstream</SelectItem>
             {products.map((p) => (
               <SelectItem key={p.id} value={p.id}>
                 {p.name}
@@ -418,7 +418,7 @@ export function RequestForm({
         </Select>
         {products.length === 0 && (
           <p className="text-xs text-muted-foreground">
-            No products configured yet — ask an admin to add some under{" "}
+            No workstreams configured yet — ask an admin to add some under{" "}
             <code>/admin/products</code>.
           </p>
         )}

@@ -214,8 +214,8 @@ async function Dashboard({
   if (byProduct.has(null)) orderedKeys.push(null);
   const productName = (id: string | null) =>
     id === null
-      ? "No product"
-      : (products ?? []).find((p) => p.id === id)?.name ?? "Unknown product";
+      ? "No workstream"
+      : (products ?? []).find((p) => p.id === id)?.name ?? "Unknown workstream";
 
   // Tagged-for-me + recent comments are personal sections — they always show
   // when the current user has something there, regardless of role.
@@ -308,9 +308,9 @@ async function Dashboard({
       <section className="space-y-3">
         <div className="flex items-end justify-between gap-3">
           <div>
-            <h2 className="text-lg font-medium">All requests by product</h2>
+            <h2 className="text-lg font-medium">All requests by workstream</h2>
             <p className="text-xs text-muted-foreground">
-              Sorted by priority within each product group.
+              Sorted by priority within each workstream group.
             </p>
           </div>
           <div className="text-right text-xs text-muted-foreground">

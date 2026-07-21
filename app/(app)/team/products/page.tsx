@@ -35,18 +35,18 @@ export default async function TeamProductsPage() {
     return (
       <div className="space-y-8">
         <header>
-          <h1 className="text-2xl font-semibold tracking-tight">Products</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Workstreams</h1>
         </header>
         <Card>
           <CardHeader>
             <CardTitle>You&rsquo;re a global admin</CardTitle>
             <CardDescription>
-              Manage all products under Admin → Products.
+              Manage all workstreams under Admin → Workstreams.
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Button asChild>
-              <Link href="/admin/products">Go to Admin → Products</Link>
+              <Link href="/admin/products">Go to Admin → Workstreams</Link>
             </Button>
           </CardContent>
         </Card>
@@ -79,7 +79,7 @@ export default async function TeamProductsPage() {
           ← Back to team
         </Link>
       ) : null}
-      <h1 className="text-2xl font-semibold tracking-tight">Products</h1>
+      <h1 className="text-2xl font-semibold tracking-tight">Workstreams</h1>
       {team?.name ? (
         <p className="text-sm text-muted-foreground">{team.name}</p>
       ) : null}
@@ -112,7 +112,7 @@ export default async function TeamProductsPage() {
         {mayCreate && (
           <TeamProductDialog
             mode="create"
-            trigger={<Button>Add product</Button>}
+            trigger={<Button>Add workstream</Button>}
           />
         )}
       </header>
@@ -121,11 +121,11 @@ export default async function TeamProductsPage() {
         <CardContent className="p-0">
           {products.length === 0 ? (
             <div className="flex flex-col items-center gap-3 p-8 text-center sm:p-12">
-              <p className="text-base font-medium">No products yet</p>
+              <p className="text-base font-medium">No workstreams yet</p>
               <p className="max-w-sm text-sm text-muted-foreground">
                 {mayCreate
-                  ? "Add the products your team takes requests for."
-                  : "Your team hasn't added any products yet."}
+                  ? "Add the workstreams your team takes requests for."
+                  : "Your team hasn't added any workstreams yet."}
               </p>
             </div>
           ) : (
