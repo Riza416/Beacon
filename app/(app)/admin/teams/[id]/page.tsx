@@ -19,6 +19,7 @@ import { AddMemberDialog } from "../_components/add-member-dialog";
 import { RemoveMemberButton } from "../_components/remove-member-button";
 import { DeleteTeamButton } from "../_components/delete-team-button";
 import { MemberRoleControls } from "../_components/member-role-controls";
+import { MemberProductPermissionToggle } from "@/app/(app)/team/_components/member-product-permission-toggle";
 
 interface TeamRequestRow {
   id: string;
@@ -50,7 +51,7 @@ export default async function TeamDetailPage({
 
   const { data: members } = await supabase
     .from("profiles")
-    .select("id, full_name, email, role, team_id, created_at, updated_at")
+    .select("*")
     .eq("team_id", id)
     .order("full_name", { ascending: true })
     .returns<Profile[]>();
@@ -174,34 +175,53 @@ export default async function TeamDetailPage({
                   <TableRow>
                     <TableHead>Name</TableHead>
                     <TableHead>Email</TableHead>
+                    <TableHead>Products</TableHead>
                     <TableHead className="text-right">Role</TableHead>
                     <TableHead className="w-32 text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {members.map((m) => (
-                    <TableRow key={m.id}>
-                      <TableCell className="font-medium">
-                        {m.full_name || "Unnamed"}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {m.email}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <MemberRoleControls
-                          teamId={team.id}
-                          profileId={m.id}
-                          role={m.role}
-                        />
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <RemoveMemberButton
-                          teamId={team.id}
-                          profileId={m.id}
-                        />
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {members.map((m) => {
+                    const fullAccess =
+                      m.role === "admin" || m.role === "team_admin";
+                    return (
+                      <TableRow key={m.id}>
+                        <TableCell className="font-medium">
+                          {m.full_name || "Unnamed"}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {m.email}
+                        </TableCell>
+                        <TableCell>
+                          {fullAccess ? (
+                            <span className="text-xs text-muted-foreground">
+                              Full access
+                            </span>
+                          ) : (
+                            <MemberProductPermissionToggle
+                              profileId={m.id}
+                              canCreate={m.can_create_products}
+                              canEdit={m.can_edit_products}
+                              canDelete={m.can_delete_products}
+                            />
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <MemberRoleControls
+                            teamId={team.id}
+                            profileId={m.id}
+                            role={m.role}
+                          />
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <RemoveMemberButton
+                            teamId={team.id}
+                            profileId={m.id}
+                          />
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             )}
