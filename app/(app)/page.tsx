@@ -1,15 +1,20 @@
 import Link from "next/link";
+import {
+  Calendar,
+  ExternalLink,
+  Inbox,
+  Layers,
+  LayoutList,
+  Plus,
+} from "lucide-react";
 import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import {
-  Card,
-  CardContent,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DashboardRowControls } from "@/components/dashboard-row-controls";
 import { DashboardFilters } from "@/components/dashboard-filters";
-import { formatDate } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 import { REQUEST_CARD_SELECT } from "@/lib/queries";
 import type { Profile, Status, Team } from "@/lib/types";
 
@@ -17,6 +22,8 @@ export const dynamic = "force-dynamic";
 
 const ALL = "__all__";
 const UNASSIGNED = "__unassigned__";
+const VIEW_LIST = "list";
+const VIEW_WORKSTREAMS = "workstreams";
 
 interface RequestRowJoined {
   id: string;
@@ -42,6 +49,7 @@ interface RequestRowJoined {
 
 interface DashboardPageProps {
   searchParams: Promise<{
+    view?: string;
     team?: string;
     status?: string;
     author?: string;
@@ -54,9 +62,11 @@ export default async function DashboardPage({
 }: DashboardPageProps) {
   const profile = await requireProfile();
   const search = await searchParams;
+  const view = search.view === VIEW_WORKSTREAMS ? VIEW_WORKSTREAMS : VIEW_LIST;
   return (
     <Dashboard
       profile={profile}
+      view={view}
       teamFilter={search.team ?? ALL}
       statusFilter={search.status ?? ALL}
       authorFilter={search.author ?? ALL}
@@ -66,19 +76,25 @@ export default async function DashboardPage({
 }
 
 // ---------------------------------------------------------------------------
-// Unified dashboard — everyone sees all requests, grouped by team and ordered
-// by team_priority within each team. Admins additionally get inline controls
-// (status select + ↑/↓ team-priority arrows) on each row.
+// Unified dashboard. Two tabbed views over the same filtered dataset:
+//   • List — every request, grouped by workstream and ordered by workstream
+//     priority, with inline triage controls for those allowed to reorder.
+//   • Workstreams — a holistic board: one card per workstream showing its
+//     owning team, status mix, and full ranked backlog at a glance.
+// Admins get inline status + priority controls; team admins reorder their own
+// team's requester priority and any workstream their team owns.
 // ---------------------------------------------------------------------------
 
 async function Dashboard({
   profile,
+  view,
   teamFilter,
   statusFilter,
   authorFilter,
   productFilter,
 }: {
   profile: Profile;
+  view: string;
   teamFilter: string;
   statusFilter: string;
   authorFilter: string;
@@ -120,17 +136,18 @@ async function Dashboard({
   ]);
 
   // workstream (product) -> owning team ids. Drives who may edit a request's
-  // workstream priority.
+  // workstream priority, and labels each workstream with its owner(s).
   const ownerTeamIdsByProduct = new Map<string, string[]>();
   for (const o of ownerRows ?? []) {
     const arr = ownerTeamIdsByProduct.get(o.product_id) ?? [];
     arr.push(o.team_id);
     ownerTeamIdsByProduct.set(o.product_id, arr);
   }
+  const teamNameById = new Map<string, string>(
+    (teams ?? []).map((t) => [t.id, t.name])
+  );
 
-  let baseQuery = supabase
-    .from("requests")
-    .select(REQUEST_CARD_SELECT);
+  let baseQuery = supabase.from("requests").select(REQUEST_CARD_SELECT);
 
   if (teamFilter !== ALL) {
     baseQuery =
@@ -159,9 +176,8 @@ async function Dashboard({
     .order("updated_at", { ascending: false })
     .returns<RequestRowJoined[]>();
 
-  // Team dependencies: which other teams each request is tagged on.
-  //  - tagsByRequest: requestId -> teamIds (so a request row can render
-  //    one badge per dependent team)
+  // Team dependencies: which other teams each request is tagged on, so a row
+  // can render one badge per dependent team.
   const { data: tagRows } = await supabase
     .from("request_team_tags")
     .select("request_id, team_id")
@@ -172,37 +188,32 @@ async function Dashboard({
     arr.push(t.team_id);
     tagsByRequest.set(t.request_id, arr);
   }
-  const teamNameById = new Map<string, string>(
-    (teams ?? []).map((t) => [t.id, t.name])
-  );
 
   // Hide requests whose status is configured as terminal. They stay in the DB
   // and remain visible on /requests/[id] and /requests/mine — they're just
-  // dropped from the dashboard's "in flight" view so the team can focus on
-  // active work. Filter applied unless the user explicitly picked a terminal
-  // status via the status filter.
+  // dropped from the dashboard's "in flight" view. Skipped only when the user
+  // explicitly picked a terminal status via the status filter.
   const terminalStatusIds = new Set(
     (statuses ?? []).filter((s) => s.is_terminal).map((s) => s.id)
   );
   const filterIsTerminal =
     statusFilter !== ALL && terminalStatusIds.has(statusFilter);
   const requests = filterIsTerminal
-    ? rawRequests
+    ? rawRequests ?? []
     : (rawRequests ?? []).filter(
         (r) => !r.status_id || !terminalStatusIds.has(r.status_id)
       );
-  const hiddenTerminalCount =
-    (rawRequests?.length ?? 0) - (requests?.length ?? 0);
+  const hiddenTerminalCount = (rawRequests?.length ?? 0) - requests.length;
 
   // Status count cards reflect the filtered set.
   const counts = new Map<string, number>();
-  for (const r of requests ?? []) {
-    const key = r.status?.label ?? "Unassigned";
+  for (const r of requests) {
+    const key = r.status_id ?? "__none__";
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
 
   // Awaiting triage: submitted but no status set.
-  const awaitingTriage = (requests ?? []).filter(
+  const awaitingTriage = requests.filter(
     (r) => r.state === "submitted" && !r.status_id
   );
 
@@ -230,7 +241,7 @@ async function Dashboard({
   // together), then updated_at descending as a tie-break. The "No workstream"
   // group has no workstream rank, so it's ordered by updated_at descending.
   const byProduct = new Map<string | null, RequestRowJoined[]>();
-  for (const r of requests ?? []) {
+  for (const r of requests) {
     const key = r.product_id ?? null;
     const arr = byProduct.get(key) ?? [];
     arr.push(r);
@@ -267,15 +278,10 @@ async function Dashboard({
 
   // Author dropdown keeps it short — only authors who currently have at least
   // one matching request.
-  const authorIdsWithRequests = new Set(
-    (requests ?? []).map((r) => r.author_id)
-  );
+  const authorIdsWithRequests = new Set(requests.map((r) => r.author_id));
   const authorOptions = (allAuthors ?? [])
     .filter((a) => authorIdsWithRequests.has(a.id))
-    .map((a) => ({
-      id: a.id,
-      label: a.full_name ?? a.email ?? "Unknown",
-    }))
+    .map((a) => ({ id: a.id, label: a.full_name ?? a.email ?? "Unknown" }))
     .sort((a, b) => a.label.localeCompare(b.label));
 
   const hasFilters =
@@ -284,14 +290,44 @@ async function Dashboard({
     authorFilter !== ALL ||
     productFilter !== ALL;
 
+  // Build hrefs that preserve the active filters while flipping one param.
+  // Used by the view tabs and the clickable status summary cards, so both
+  // stay pure server-rendered links (no extra client bundle).
+  const currentParams: Record<string, string> = {
+    view,
+    team: teamFilter,
+    status: statusFilter,
+    author: authorFilter,
+    product: productFilter,
+  };
+  const hrefWith = (patch: Record<string, string>) => {
+    const merged = { ...currentParams, ...patch };
+    const p = new URLSearchParams();
+    for (const [k, v] of Object.entries(merged)) {
+      if (v && v !== ALL && !(k === "view" && v === VIEW_LIST)) p.set(k, v);
+    }
+    const qs = p.toString();
+    return qs ? `/?${qs}` : "/";
+  };
+
+  const rowShared = {
+    statuses: statuses ?? [],
+    isAdmin,
+    profile,
+    ownerTeamIdsByProduct,
+    requesterGroupSize,
+    workstreamGroupSize,
+  };
+
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
           <p className="text-sm text-muted-foreground">
-            Every request across the org, grouped by team and ordered by team
-            priority.{" "}
+            {view === VIEW_WORKSTREAMS
+              ? "Every workstream's backlog and ranking, side by side."
+              : "Every request across the org, ranked within its workstream."}{" "}
             {isAdmin
               ? "Use the row controls to reorder priority and set status inline."
               : profile.role === "team_admin"
@@ -300,9 +336,18 @@ async function Dashboard({
           </p>
         </div>
         <Button asChild>
-          <Link href="/requests/new">New request</Link>
+          <Link href="/requests/new">
+            <Plus className="mr-1 h-4 w-4" />
+            New request
+          </Link>
         </Button>
       </header>
+
+      <ViewTabs
+        view={view}
+        listHref={hrefWith({ view: VIEW_LIST })}
+        workstreamsHref={hrefWith({ view: VIEW_WORKSTREAMS })}
+      />
 
       <DashboardFilters
         teams={teams ?? []}
@@ -315,160 +360,460 @@ async function Dashboard({
         products={products ?? []}
       />
 
-      <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {(statuses ?? []).map((s) => (
-          <Card key={s.id}>
-            <CardContent className="p-4">
+      {view === VIEW_WORKSTREAMS ? (
+        <WorkstreamsBoard
+          orderedKeys={orderedKeys}
+          byProduct={byProduct}
+          productName={productName}
+          statuses={statuses ?? []}
+          ownerTeamIdsByProduct={ownerTeamIdsByProduct}
+          teamNameById={teamNameById}
+          hasFilters={hasFilters}
+        />
+      ) : (
+        <>
+          <StatusSummary
+            statuses={statuses ?? []}
+            counts={counts}
+            statusFilter={statusFilter}
+            hrefWith={hrefWith}
+          />
+
+          {awaitingTriage.length > 0 && (
+            <SectionCard
+              icon={<Inbox className="h-4 w-4" />}
+              title="Awaiting triage"
+              description="Submitted requests that haven't been given a status yet."
+            >
+              <RequestList rows={awaitingTriage} {...rowShared} />
+            </SectionCard>
+          )}
+
+          <section className="space-y-3">
+            <div className="flex items-end justify-between gap-3">
               <div className="flex items-center gap-2">
-                <span
-                  className="h-2.5 w-2.5 rounded-full"
-                  style={{ backgroundColor: s.color }}
-                />
-                <span className="text-sm font-medium">{s.label}</span>
+                <LayoutList className="h-4 w-4 text-muted-foreground" />
+                <div>
+                  <h2 className="text-lg font-medium leading-tight">
+                    All requests by workstream
+                  </h2>
+                  <p className="text-xs text-muted-foreground">
+                    Ranked by workstream priority within each group.
+                  </p>
+                </div>
               </div>
-              <p className="mt-2 text-2xl font-semibold">
-                {counts.get(s.label) ?? 0}
-              </p>
-            </CardContent>
-          </Card>
-        ))}
-      </section>
-
-      {awaitingTriage.length > 0 && (
-        <SectionCard
-          title="Awaiting triage"
-          description="Submitted requests that haven't been given a status yet."
-        >
-          <RequestList
-            rows={awaitingTriage}
-            statuses={statuses ?? []}
-            isAdmin={isAdmin}
-            profile={profile}
-            ownerTeamIdsByProduct={ownerTeamIdsByProduct}
-            requesterGroupSize={requesterGroupSize}
-            workstreamGroupSize={workstreamGroupSize}
-          />
-        </SectionCard>
-      )}
-
-      <section className="space-y-3">
-        <div className="flex items-end justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-medium">All requests by workstream</h2>
-            <p className="text-xs text-muted-foreground">
-              Sorted by priority within each workstream group.
-            </p>
-          </div>
-          <div className="text-right text-xs text-muted-foreground">
-            {hasFilters && <p>Filtered ({requests?.length ?? 0} matching)</p>}
-            {hiddenTerminalCount > 0 && (
-              <p>
-                {hiddenTerminalCount} terminal-state{" "}
-                {hiddenTerminalCount === 1 ? "request" : "requests"} hidden
-              </p>
+              <div className="text-right text-xs text-muted-foreground">
+                {hasFilters && <p>Filtered ({requests.length} matching)</p>}
+                {hiddenTerminalCount > 0 && (
+                  <p>
+                    {hiddenTerminalCount} completed{" "}
+                    {hiddenTerminalCount === 1 ? "request" : "requests"} hidden
+                  </p>
+                )}
+              </div>
+            </div>
+            {orderedKeys.length === 0 ? (
+              <EmptyDashboardCard hasFilters={hasFilters} />
+            ) : (
+              <div className="space-y-6">
+                {orderedKeys.map((productId) => {
+                  const rows = byProduct.get(productId) ?? [];
+                  return (
+                    <div key={productId ?? "no-product"} className="space-y-2">
+                      <div className="flex items-center gap-2 px-1">
+                        <Layers className="h-3.5 w-3.5 text-muted-foreground" />
+                        <h3 className="text-sm font-semibold">
+                          {productName(productId)}
+                        </h3>
+                        <span className="text-xs text-muted-foreground">
+                          {rows.length}
+                        </span>
+                        <WorkstreamOwners
+                          productId={productId}
+                          ownerTeamIdsByProduct={ownerTeamIdsByProduct}
+                          teamNameById={teamNameById}
+                        />
+                      </div>
+                      <Card>
+                        <CardContent className="p-0">
+                          <ul className="divide-y">
+                            {rows.map((r) => (
+                              <RequestRowItem
+                                key={r.id}
+                                row={r}
+                                position={
+                                  productId === null
+                                    ? undefined
+                                    : r.workstream_priority + 1
+                                }
+                                taggedTeams={(tagsByRequest.get(r.id) ?? [])
+                                  .flatMap((tid) => {
+                                    const name = teamNameById.get(tid);
+                                    return name ? [{ id: tid, name }] : [];
+                                  })}
+                                {...rowShared}
+                              />
+                            ))}
+                          </ul>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  );
+                })}
+              </div>
             )}
-          </div>
-        </div>
-        {orderedKeys.length === 0 ? (
-          <EmptyDashboardCard hasFilters={hasFilters} />
-        ) : (
-          <div className="space-y-6">
-            {orderedKeys.map((productId) => {
-              const rows = byProduct.get(productId) ?? [];
+          </section>
 
-              // One flat list per workstream, ordered by workstream_priority
-              // (all requesting teams mixed together). The workstream rank is
-              // the row's primary position chip; the "No workstream" group has
-              // no such rank so its rows show no chip.
-              return (
-                <div key={productId ?? "no-product"} className="space-y-3">
-                  <h3 className="text-base font-medium">
-                    {productName(productId)}{" "}
-                    <span className="text-xs font-normal text-muted-foreground/70">
-                      ({rows.length})
-                    </span>
-                  </h3>
-                  <Card>
-                    <CardContent className="p-0">
-                      <ul className="divide-y">
-                        {rows.map((r) => (
-                          <RequestRowItem
-                            key={r.id}
-                            row={r}
-                            statuses={statuses ?? []}
-                            position={
-                              productId === null
-                                ? undefined
-                                : r.workstream_priority + 1
-                            }
-                            isAdmin={isAdmin}
-                            profile={profile}
-                            ownerTeamIdsByProduct={ownerTeamIdsByProduct}
-                            requesterGroupSize={requesterGroupSize}
-                            workstreamGroupSize={workstreamGroupSize}
-                            taggedTeams={(
-                              tagsByRequest.get(r.id) ?? []
-                            ).flatMap((tid) => {
-                              const name = teamNameById.get(tid);
-                              return name ? [{ id: tid, name }] : [];
-                            })}
-                          />
-                        ))}
-                      </ul>
-                    </CardContent>
-                  </Card>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
+          {taggedForMe.length > 0 && (
+            <SectionCard
+              title="Tagged for your feedback"
+              description="Requests where you (or your team) were tagged."
+            >
+              <RequestList
+                rows={taggedForMe}
+                statuses={statuses ?? []}
+                compact
+                isAdmin={isAdmin}
+                profile={profile}
+                hideControls
+              />
+            </SectionCard>
+          )}
 
-      {taggedForMe.length > 0 && (
-        <SectionCard
-          title="Tagged for your feedback"
-          description="Requests where you (or your team) were tagged."
-        >
-          <RequestList
-            rows={taggedForMe}
-            statuses={statuses ?? []}
-            compact
-            isAdmin={isAdmin}
-            profile={profile}
-            hideControls
-          />
-        </SectionCard>
-      )}
-
-      {recentCommentsOnMine.length > 0 && (
-        <SectionCard
-          title="Recent comments on your requests"
-          description="Newest first."
-        >
-          <ul className="space-y-2">
-            {recentCommentsOnMine.map((c) => (
-              <li
-                key={c.comment_id}
-                className="rounded-md border bg-muted/20 p-3 text-sm"
-              >
-                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                  <span>{c.author_label}</span>
-                  <span>·</span>
-                  <Link
-                    className="hover:underline"
-                    href={`/requests/${c.request_id}`}
+          {recentCommentsOnMine.length > 0 && (
+            <SectionCard
+              title="Recent comments on your requests"
+              description="Newest first."
+            >
+              <ul className="space-y-2">
+                {recentCommentsOnMine.map((c) => (
+                  <li
+                    key={c.comment_id}
+                    className="rounded-md border bg-muted/20 p-3 text-sm"
                   >
-                    {c.request_title}
-                  </Link>
-                  <span>·</span>
-                  <span>{formatDate(c.created_at)}</span>
-                </div>
-                <p className="mt-1 line-clamp-2">{c.body}</p>
-              </li>
-            ))}
-          </ul>
-        </SectionCard>
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                      <span>{c.author_label}</span>
+                      <span>·</span>
+                      <Link
+                        className="hover:underline"
+                        href={`/requests/${c.request_id}`}
+                      >
+                        {c.request_title}
+                      </Link>
+                      <span>·</span>
+                      <span>{formatDate(c.created_at)}</span>
+                    </div>
+                    <p className="mt-1 line-clamp-2">{c.body}</p>
+                  </li>
+                ))}
+              </ul>
+            </SectionCard>
+          )}
+        </>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// View tabs — pure links so switching views is a normal navigation that keeps
+// the active filters in the query string.
+// ---------------------------------------------------------------------------
+
+function ViewTabs({
+  view,
+  listHref,
+  workstreamsHref,
+}: {
+  view: string;
+  listHref: string;
+  workstreamsHref: string;
+}) {
+  const tabs = [
+    { key: VIEW_LIST, href: listHref, label: "List", icon: LayoutList },
+    {
+      key: VIEW_WORKSTREAMS,
+      href: workstreamsHref,
+      label: "Workstreams",
+      icon: Layers,
+    },
+  ];
+  return (
+    <div className="flex items-center gap-1 border-b">
+      {tabs.map((t) => {
+        const active = view === t.key;
+        const Icon = t.icon;
+        return (
+          <Link
+            key={t.key}
+            href={t.href}
+            className={cn(
+              "-mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium transition-colors",
+              active
+                ? "border-primary text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            )}
+            aria-current={active ? "page" : undefined}
+          >
+            <Icon className="h-4 w-4" />
+            {t.label}
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Status summary — clickable cards that double as a one-tap status filter.
+// ---------------------------------------------------------------------------
+
+function StatusSummary({
+  statuses,
+  counts,
+  statusFilter,
+  hrefWith,
+}: {
+  statuses: Status[];
+  counts: Map<string, number>;
+  statusFilter: string;
+  hrefWith: (patch: Record<string, string>) => string;
+}) {
+  return (
+    <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      {statuses.map((s) => {
+        const active = statusFilter === s.id;
+        return (
+          <Link
+            key={s.id}
+            href={hrefWith({ status: active ? ALL : s.id })}
+            aria-pressed={active}
+            title={active ? `Clear ${s.label} filter` : `Filter by ${s.label}`}
+          >
+            <Card
+              className={cn(
+                "transition-colors hover:border-primary/50 hover:bg-muted/40",
+                active && "border-primary ring-1 ring-primary/30"
+              )}
+            >
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2">
+                  <span
+                    className="h-2.5 w-2.5 rounded-full"
+                    style={{ backgroundColor: s.color }}
+                  />
+                  <span className="text-sm font-medium">{s.label}</span>
+                </div>
+                <p className="mt-2 text-2xl font-semibold tabular-nums">
+                  {counts.get(s.id) ?? 0}
+                </p>
+              </CardContent>
+            </Card>
+          </Link>
+        );
+      })}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Workstreams board — one card per workstream, holistic view of every backlog.
+// ---------------------------------------------------------------------------
+
+function WorkstreamsBoard({
+  orderedKeys,
+  byProduct,
+  productName,
+  statuses,
+  ownerTeamIdsByProduct,
+  teamNameById,
+  hasFilters,
+}: {
+  orderedKeys: (string | null)[];
+  byProduct: Map<string | null, RequestRowJoined[]>;
+  productName: (id: string | null) => string;
+  statuses: Status[];
+  ownerTeamIdsByProduct: Map<string, string[]>;
+  teamNameById: Map<string, string>;
+  hasFilters: boolean;
+}) {
+  if (orderedKeys.length === 0) {
+    return <EmptyDashboardCard hasFilters={hasFilters} />;
+  }
+  return (
+    <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+      {orderedKeys.map((productId) => {
+        const rows = byProduct.get(productId) ?? [];
+        const sequenced = productId !== null;
+        return (
+          <Card key={productId ?? "no-product"} className="flex flex-col">
+            <div className="flex items-start justify-between gap-2 border-b p-4">
+              <div className="min-w-0 space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <Layers className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <h3 className="truncate text-sm font-semibold">
+                    {productName(productId)}
+                  </h3>
+                </div>
+                <WorkstreamOwners
+                  productId={productId}
+                  ownerTeamIdsByProduct={ownerTeamIdsByProduct}
+                  teamNameById={teamNameById}
+                />
+              </div>
+              <span
+                className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground"
+                title={`${rows.length} active ${rows.length === 1 ? "request" : "requests"}`}
+              >
+                {rows.length}
+              </span>
+            </div>
+
+            <StatusBar rows={rows} statuses={statuses} />
+
+            <div className="max-h-[22rem] flex-1 overflow-y-auto">
+              {rows.length === 0 ? (
+                <p className="p-4 text-xs text-muted-foreground">
+                  No active requests.
+                </p>
+              ) : (
+                <ol className="divide-y">
+                  {rows.map((r, idx) => (
+                    <li key={r.id} className="flex items-center gap-3 p-3">
+                      <span
+                        className={cn(
+                          "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs font-semibold tabular-nums",
+                          sequenced
+                            ? "bg-primary/10 text-primary"
+                            : "bg-muted text-muted-foreground"
+                        )}
+                      >
+                        {sequenced ? idx + 1 : "–"}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <Link
+                          href={`/requests/${r.id}`}
+                          className="block truncate text-sm font-medium hover:underline"
+                          title={r.title || "Untitled draft"}
+                        >
+                          {r.title || "Untitled draft"}
+                        </Link>
+                        <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+                          {r.team && (
+                            <span className="truncate">{r.team.name}</span>
+                          )}
+                          {r.deadline &&
+                            new Date(r.deadline) < new Date() && (
+                              <span className="font-medium text-destructive">
+                                · overdue
+                              </span>
+                            )}
+                        </div>
+                      </div>
+                      {r.status ? (
+                        <span
+                          className="inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-xs"
+                          style={{
+                            backgroundColor: `${r.status.color}22`,
+                            color: r.status.color,
+                          }}
+                          title={r.status.label}
+                        >
+                          <span
+                            className="h-1.5 w-1.5 rounded-full"
+                            style={{ backgroundColor: r.status.color }}
+                          />
+                          {r.status.label}
+                        </span>
+                      ) : (
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          No status
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </div>
+          </Card>
+        );
+      })}
+    </section>
+  );
+}
+
+/** A thin segmented bar showing the status mix of a workstream's requests. */
+function StatusBar({
+  rows,
+  statuses,
+}: {
+  rows: RequestRowJoined[];
+  statuses: Status[];
+}) {
+  if (rows.length === 0) return null;
+  const byStatus = new Map<string | null, number>();
+  for (const r of rows) {
+    const key = r.status?.id ?? null;
+    byStatus.set(key, (byStatus.get(key) ?? 0) + 1);
+  }
+  const segments = [
+    ...statuses
+      .filter((s) => byStatus.has(s.id))
+      .map((s) => ({ label: s.label, color: s.color, n: byStatus.get(s.id)! })),
+    ...(byStatus.has(null)
+      ? [
+          {
+            label: "No status",
+            color: "hsl(var(--muted-foreground))",
+            n: byStatus.get(null)!,
+          },
+        ]
+      : []),
+  ];
+  return (
+    <div className="flex h-1.5 w-full overflow-hidden">
+      {segments.map((seg, i) => (
+        <div
+          key={i}
+          className="h-full"
+          style={{
+            width: `${(seg.n / rows.length) * 100}%`,
+            backgroundColor: seg.color,
+          }}
+          title={`${seg.label}: ${seg.n}`}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** Owning-team badges for a workstream (or a muted note when unowned). */
+function WorkstreamOwners({
+  productId,
+  ownerTeamIdsByProduct,
+  teamNameById,
+}: {
+  productId: string | null;
+  ownerTeamIdsByProduct: Map<string, string[]>;
+  teamNameById: Map<string, string>;
+}) {
+  if (productId === null) return null;
+  const owners = (ownerTeamIdsByProduct.get(productId) ?? [])
+    .map((id) => teamNameById.get(id))
+    .filter((n): n is string => Boolean(n));
+  if (owners.length === 0) {
+    return (
+      <span className="text-xs text-muted-foreground/70">No owning team</span>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      <span className="text-xs text-muted-foreground">Owned by</span>
+      {owners.map((name) => (
+        <Badge key={name} variant="secondary" className="text-[10px]">
+          {name}
+        </Badge>
+      ))}
     </div>
   );
 }
@@ -480,19 +825,24 @@ async function Dashboard({
 function SectionCard({
   title,
   description,
+  icon,
   children,
 }: {
   title: string;
   description?: string;
+  icon?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <section className="space-y-3">
-      <div>
-        <h2 className="text-lg font-medium">{title}</h2>
-        {description && (
-          <p className="text-xs text-muted-foreground">{description}</p>
-        )}
+      <div className="flex items-center gap-2">
+        {icon && <span className="text-muted-foreground">{icon}</span>}
+        <div>
+          <h2 className="text-lg font-medium leading-tight">{title}</h2>
+          {description && (
+            <p className="text-xs text-muted-foreground">{description}</p>
+          )}
+        </div>
       </div>
       {children}
     </section>
@@ -502,7 +852,7 @@ function SectionCard({
 function EmptyDashboardCard({ hasFilters }: { hasFilters: boolean }) {
   return (
     <Card>
-      <CardContent className="p-8 text-center text-sm text-muted-foreground">
+      <CardContent className="p-10 text-center text-sm text-muted-foreground">
         {hasFilters ? (
           "No requests match the current filters."
         ) : (
@@ -567,6 +917,13 @@ function RequestList({
   );
 }
 
+function initials(label: string): string {
+  const parts = label.split(/[\s@._-]+/).filter(Boolean);
+  const first = parts[0]?.[0] ?? "?";
+  const second = parts.length > 1 ? parts[1][0] : "";
+  return (first + second).toUpperCase();
+}
+
 function RequestRowItem({
   row: r,
   statuses,
@@ -614,9 +971,14 @@ function RequestRowItem({
         false));
   const showControls =
     (canEditRequester || canEditWorkstream || canEditStatus) && !hideControls;
+  const authorLabel = r.author?.full_name ?? r.author?.email ?? "Unknown";
+  const overdue = r.deadline ? new Date(r.deadline) < new Date() : false;
   return (
     <li
-      className={`flex flex-wrap items-center gap-3 ${compact ? "p-3" : "p-4"}`}
+      className={cn(
+        "flex flex-wrap items-center gap-3 transition-colors hover:bg-muted/30",
+        compact ? "p-3" : "p-4"
+      )}
     >
       {position !== undefined && (
         <span
@@ -637,17 +999,12 @@ function RequestRowItem({
           </Link>
           {r.state === "draft" && <Badge variant="secondary">Draft</Badge>}
           {r.status && (
-            <Badge
-              style={{ backgroundColor: r.status.color, color: "white" }}
-            >
+            <Badge style={{ backgroundColor: r.status.color, color: "white" }}>
               {r.status.label}
             </Badge>
           )}
           {r.team && (
-            <Badge
-              variant="default"
-              title={`Owned by ${r.team.name}`}
-            >
+            <Badge variant="default" title={`Owned by ${r.team.name}`}>
               {r.team.name}
             </Badge>
           )}
@@ -668,27 +1025,34 @@ function RequestRowItem({
               href={r.notion_url}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-xs underline text-muted-foreground"
+              className="inline-flex items-center gap-0.5 text-xs text-muted-foreground underline"
             >
-              Notion ↗
+              Notion
+              <ExternalLink className="h-3 w-3" />
             </a>
           )}
         </div>
-        <p className="mt-1 text-xs text-muted-foreground">
-          {r.author?.email ?? r.author?.full_name ?? "Unknown"}
-          {" · "}
-          {formatDate(r.updated_at)}
+        <p className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground">
+          <span
+            aria-hidden
+            className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-muted text-[9px] font-semibold text-muted-foreground"
+          >
+            {initials(authorLabel)}
+          </span>
+          <span className="truncate">{authorLabel}</span>
+          <span>·</span>
+          <span>{formatDate(r.updated_at)}</span>
           {r.deadline && (
             <>
-              {" · "}
+              <span>·</span>
               <span
-                className={
-                  new Date(r.deadline) < new Date()
-                    ? "font-medium text-destructive"
-                    : "font-medium"
-                }
+                className={cn(
+                  "inline-flex items-center gap-0.5 font-medium",
+                  overdue && "text-destructive"
+                )}
                 title="Deadline"
               >
+                <Calendar className="h-3 w-3" />
                 due{" "}
                 {new Date(r.deadline).toLocaleDateString(undefined, {
                   month: "short",
@@ -711,9 +1075,7 @@ function RequestRowItem({
             ) ?? 1
           }
           workstreamMax={
-            r.product_id
-              ? workstreamGroupSize?.get(r.product_id) ?? 1
-              : 1
+            r.product_id ? workstreamGroupSize?.get(r.product_id) ?? 1 : 1
           }
           statuses={statuses}
           canEditStatus={canEditStatus}
