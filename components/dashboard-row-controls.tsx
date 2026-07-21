@@ -38,6 +38,10 @@ interface DashboardRowControlsProps {
    * that owns the workstream. Defaults to false.
    */
   canEditWorkstream?: boolean;
+  /** Number of requests in the requester group — caps the requester input. */
+  requesterMax?: number;
+  /** Number of requests in the workstream — caps the workstream input. */
+  workstreamMax?: number;
 }
 
 export function DashboardRowControls({
@@ -49,6 +53,8 @@ export function DashboardRowControls({
   canEditStatus = true,
   canEditRequester = true,
   canEditWorkstream = false,
+  requesterMax = 1,
+  workstreamMax = 1,
 }: DashboardRowControlsProps) {
   const router = useRouter();
   const [pending, startTransition] = React.useTransition();
@@ -77,7 +83,8 @@ export function DashboardRowControls({
         <PriorityField
           prefix="T"
           current={currentPriority}
-          title="Requester priority"
+          max={requesterMax}
+          title={`Requester priority (1–${requesterMax})`}
           successLabel="Requester priority"
           commit={(n) => setTeamPriority(requestId, n)}
         />
@@ -86,7 +93,8 @@ export function DashboardRowControls({
         <PriorityField
           prefix="W"
           current={currentWorkstreamPriority}
-          title="Workstream priority"
+          max={workstreamMax}
+          title={`Workstream priority (1–${workstreamMax})`}
           successLabel="Workstream priority"
           commit={(n) => setWorkstreamPriority(requestId, n)}
         />
@@ -127,42 +135,54 @@ export function DashboardRowControls({
 function PriorityField({
   prefix,
   current,
+  max,
   title,
   successLabel,
   commit,
 }: {
   /** Short caption to distinguish the two numbers, e.g. "T" or "W". */
   prefix: string;
+  /** Stored 0-based rank. Displayed 1-based (matches the # chip). */
   current: number;
+  /** Number of requests in the group; the input can't exceed this. */
+  max: number;
   title: string;
   successLabel: string;
+  /** Receives the 0-based target index. */
   commit: (value: number) => Promise<unknown>;
 }) {
   const router = useRouter();
   const [pending, startTransition] = React.useTransition();
-  const [draft, setDraft] = React.useState<string>(String(current));
+  // Display 1-based so it lines up with the position chip and "max = count".
+  const [draft, setDraft] = React.useState<string>(String(current + 1));
 
   React.useEffect(() => {
-    setDraft(String(current));
+    setDraft(String(current + 1));
   }, [current]);
 
   function commitDraft(rawValue: string) {
     const parsed = Number.parseInt(rawValue, 10);
-    if (Number.isNaN(parsed) || parsed < 0) {
-      setDraft(String(current));
-      toast.error("Priority must be a positive number");
+    if (Number.isNaN(parsed)) {
+      setDraft(String(current + 1));
       return;
     }
-    if (parsed === current) {
+    // Clamp to the valid 1..max window, then convert to a 0-based index.
+    const clamped = Math.min(Math.max(parsed, 1), Math.max(max, 1));
+    const targetIndex = clamped - 1;
+    if (clamped !== parsed) {
+      setDraft(String(clamped));
+    }
+    if (targetIndex === current) {
+      setDraft(String(current + 1));
       return; // no-op
     }
     startTransition(async () => {
       try {
-        await commit(parsed);
-        toast.success(`${successLabel} set to ${parsed}`);
+        await commit(targetIndex);
+        toast.success(`${successLabel} set to ${clamped}`);
         router.refresh();
       } catch (err) {
-        setDraft(String(current));
+        setDraft(String(current + 1));
         toast.error(
           err instanceof Error ? err.message : "Could not set priority"
         );
@@ -180,7 +200,8 @@ function PriorityField({
       </span>
       <Input
         type="number"
-        min={0}
+        min={1}
+        max={max}
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={() => commitDraft(draft)}
@@ -189,7 +210,7 @@ function PriorityField({
             e.preventDefault();
             (e.currentTarget as HTMLInputElement).blur();
           } else if (e.key === "Escape") {
-            setDraft(String(current));
+            setDraft(String(current + 1));
             (e.currentTarget as HTMLInputElement).blur();
           }
         }}

@@ -206,6 +206,25 @@ async function Dashboard({
     (r) => r.state === "submitted" && !r.status_id
   );
 
+  // Group sizes cap the priority inputs (you can't rank a request higher than
+  // the number of requests in its group). Counted from rawRequests (pre
+  // terminal-hide) so hidden rows still occupy their slot; the server clamps
+  // to the true DB count regardless, so this is a UI guardrail.
+  const requesterGroupSize = new Map<string, number>();
+  const workstreamGroupSize = new Map<string, number>();
+  const requesterKey = (teamId: string | null, productId: string | null) =>
+    `${teamId ?? "none"}::${productId ?? "none"}`;
+  for (const r of rawRequests ?? []) {
+    const rk = requesterKey(r.team_id, r.product_id);
+    requesterGroupSize.set(rk, (requesterGroupSize.get(rk) ?? 0) + 1);
+    if (r.product_id) {
+      workstreamGroupSize.set(
+        r.product_id,
+        (workstreamGroupSize.get(r.product_id) ?? 0) + 1
+      );
+    }
+  }
+
   // Group by workstream (product). Each workstream group is ONE flat list
   // ordered by workstream_priority ascending (all requesting teams mixed
   // together), then updated_at descending as a tie-break. The "No workstream"
@@ -326,6 +345,8 @@ async function Dashboard({
             isAdmin={isAdmin}
             profile={profile}
             ownerTeamIdsByProduct={ownerTeamIdsByProduct}
+            requesterGroupSize={requesterGroupSize}
+            workstreamGroupSize={workstreamGroupSize}
           />
         </SectionCard>
       )}
@@ -383,6 +404,8 @@ async function Dashboard({
                             isAdmin={isAdmin}
                             profile={profile}
                             ownerTeamIdsByProduct={ownerTeamIdsByProduct}
+                            requesterGroupSize={requesterGroupSize}
+                            workstreamGroupSize={workstreamGroupSize}
                             taggedTeams={(
                               tagsByRequest.get(r.id) ?? []
                             ).flatMap((tid) => {
@@ -505,6 +528,8 @@ function RequestList({
   profile,
   showPosition = true,
   ownerTeamIdsByProduct,
+  requesterGroupSize,
+  workstreamGroupSize,
 }: {
   rows: RequestRowJoined[];
   statuses: Status[];
@@ -514,6 +539,8 @@ function RequestList({
   profile: Profile;
   showPosition?: boolean;
   ownerTeamIdsByProduct?: Map<string, string[]>;
+  requesterGroupSize?: Map<string, number>;
+  workstreamGroupSize?: Map<string, number>;
 }) {
   return (
     <Card>
@@ -530,6 +557,8 @@ function RequestList({
               isAdmin={isAdmin}
               profile={profile}
               ownerTeamIdsByProduct={ownerTeamIdsByProduct}
+              requesterGroupSize={requesterGroupSize}
+              workstreamGroupSize={workstreamGroupSize}
             />
           ))}
         </ul>
@@ -548,6 +577,8 @@ function RequestRowItem({
   profile,
   taggedTeams = [],
   ownerTeamIdsByProduct,
+  requesterGroupSize,
+  workstreamGroupSize,
 }: {
   row: RequestRowJoined;
   statuses: Status[];
@@ -560,6 +591,10 @@ function RequestRowItem({
   taggedTeams?: { id: string; name: string }[];
   /** workstream (product) id -> owning team ids, for workstream-edit rights. */
   ownerTeamIdsByProduct?: Map<string, string[]>;
+  /** (team::product) -> count, caps the requester priority input. */
+  requesterGroupSize?: Map<string, number>;
+  /** product id -> count, caps the workstream priority input. */
+  workstreamGroupSize?: Map<string, number>;
 }) {
   // Global admins can edit everything. A team admin can reorder the requester
   // priority on their own team's rows (server-enforced in setTeamPriority) and
@@ -670,6 +705,16 @@ function RequestRowItem({
           currentStatusId={r.status_id}
           currentPriority={r.team_priority}
           currentWorkstreamPriority={r.workstream_priority}
+          requesterMax={
+            requesterGroupSize?.get(
+              `${r.team_id ?? "none"}::${r.product_id ?? "none"}`
+            ) ?? 1
+          }
+          workstreamMax={
+            r.product_id
+              ? workstreamGroupSize?.get(r.product_id) ?? 1
+              : 1
+          }
           statuses={statuses}
           canEditStatus={canEditStatus}
           canEditRequester={canEditRequester}
