@@ -7,6 +7,16 @@ import { authedAction, requireTeamManager } from "@/lib/actions/utils";
 
 const emailSchema = z.string().trim().email().max(320);
 const uuidSchema = z.string().uuid();
+// Restrict to Slack's incoming-webhook host — both validation and an SSRF
+// guard, since the server POSTs to whatever URL is stored here.
+const slackWebhookSchema = z
+  .string()
+  .trim()
+  .url()
+  .max(500)
+  .refine((u) => u.startsWith("https://hooks.slack.com/"), {
+    message: "Enter a Slack incoming-webhook URL (https://hooks.slack.com/…)",
+  });
 
 function generateTempPassword(): string {
   // Readable, shareable one-time password: Beacon-XXXXXXXXXXXX
@@ -170,4 +180,51 @@ export async function searchAddableUsers(
   return (data ?? [])
     .filter((p) => p.team_id !== tId)
     .map((p) => ({ id: p.id, full_name: p.full_name, email: p.email }));
+}
+
+/**
+ * Set or clear a team's Slack incoming-webhook (empty string clears it). The
+ * webhook is a secret stored with admin-only RLS; this runs through the
+ * service-role client after requireTeamManager. Never returns the URL.
+ */
+export async function setTeamSlackWebhook(
+  teamId: string,
+  webhookUrl: string
+): Promise<{ ok: true; configured: boolean }> {
+  const tId = uuidSchema.parse(teamId);
+  const { admin } = await requireTeamManager(tId);
+  const trimmed = webhookUrl.trim();
+
+  if (trimmed.length === 0) {
+    const { error } = await admin
+      .from("team_slack_webhooks")
+      .delete()
+      .eq("team_id", tId);
+    if (error) throw new Error(error.message);
+    revalidatePath("/team");
+    return { ok: true, configured: false };
+  }
+
+  const url = slackWebhookSchema.parse(trimmed);
+  const { error } = await admin
+    .from("team_slack_webhooks")
+    .upsert(
+      { team_id: tId, webhook_url: url, updated_at: new Date().toISOString() },
+      { onConflict: "team_id" }
+    );
+  if (error) throw new Error(error.message);
+  revalidatePath("/team");
+  return { ok: true, configured: true };
+}
+
+/** Whether a team has a Slack webhook configured. Never returns the secret. */
+export async function teamSlackConfigured(teamId: string): Promise<boolean> {
+  const tId = uuidSchema.parse(teamId);
+  const { admin } = await requireTeamManager(tId);
+  const { count, error } = await admin
+    .from("team_slack_webhooks")
+    .select("team_id", { count: "exact", head: true })
+    .eq("team_id", tId);
+  if (error) throw new Error(error.message);
+  return (count ?? 0) > 0;
 }

@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { requireTeamManager } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { searchAddableUsers } from "@/app/(app)/team/actions";
+import {
+  searchAddableUsers,
+  teamSlackConfigured,
+} from "@/app/(app)/team/actions";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -24,6 +27,7 @@ import { InviteMemberDialog } from "./_components/invite-member-dialog";
 import { AddExistingMemberDialog } from "./_components/add-existing-member-dialog";
 import { RemoveMemberButton } from "./_components/remove-member-button";
 import { MemberProductPermissionToggle } from "./_components/member-product-permission-toggle";
+import { SlackWebhookCard } from "./_components/slack-webhook-card";
 
 export default async function TeamPage() {
   const profile = await requireTeamManager();
@@ -83,6 +87,7 @@ export default async function TeamPage() {
     >();
 
   const candidates = await searchAddableUsers(teamId);
+  const slackConfigured = await teamSlackConfigured(teamId);
 
   return (
     <div className="space-y-8">
@@ -187,6 +192,11 @@ export default async function TeamPage() {
             )}
           </CardContent>
         </Card>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-lg font-medium">Alerts</h2>
+        <SlackWebhookCard teamId={teamId} initialConfigured={slackConfigured} />
       </section>
     </div>
   );

@@ -36,6 +36,15 @@ create table public.products (
   updated_at timestamptz not null default now()
 );
 
+-- Per-team Slack incoming-webhook for owner alerts. Secret: admin-only RLS
+-- (see policy below); team admins manage it via the service-role client.
+create table public.team_slack_webhooks (
+  team_id uuid primary key references public.teams(id) on delete cascade,
+  webhook_url text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 -- Products can be owned by one or more teams (many-to-many, display-only).
 create table public.product_owners (
   product_id uuid not null references public.products(id) on delete cascade,
@@ -268,6 +277,12 @@ create policy profiles_admin_all on public.profiles for all to authenticated
   using (public.is_admin(auth.uid())) with check (public.is_admin(auth.uid()));
 
 -- teams / products / statuses / field definitions: everyone reads, admins write
+-- team_slack_webhooks: secret. Only admins read/write directly; team-admin
+-- management + the alert sender go through the service-role client.
+alter table public.team_slack_webhooks enable row level security;
+create policy team_slack_webhooks_admin_all on public.team_slack_webhooks for all to authenticated
+  using (public.is_admin(auth.uid())) with check (public.is_admin(auth.uid()));
+
 create policy teams_read_all on public.teams for select to authenticated using (true);
 create policy teams_admin_all on public.teams for all to authenticated
   using (public.is_admin(auth.uid())) with check (public.is_admin(auth.uid()));

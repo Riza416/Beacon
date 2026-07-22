@@ -1,18 +1,29 @@
-// Workstream-owner email alerts.
+// Workstream-owner alerts (Slack + email).
 //
 // When a request is submitted into a workstream, or its status changes, the
-// members of the team(s) that OWN that workstream get an email. Recipients are
-// resolved through the service-role client because the alert crosses team
-// boundaries (a submitter on team A triggers mail to owning team B, whose
-// profiles RLS would otherwise hide). That's safe here: the function is only
-// ever called from an already-authorized mutation, and it only reads the data
-// needed to address the mail — it grants the caller nothing.
+// team(s) that OWN that workstream are alerted:
+//   • Slack — one message per owning team that has configured a webhook, posted
+//     to that team's channel.
+//   • Email — one message per owning-team member (minus the actor), if email is
+//     configured (RESEND_API_KEY / EMAIL_FROM).
+// Both are optional and independent; whichever is configured fires.
+//
+// Everything runs through the service-role client because the alert crosses
+// team boundaries (a submitter on team A triggers alerts to owning team B) and
+// the Slack webhook is a secret with admin-only RLS. That's safe: this function
+// is only ever called from an already-authorized mutation, reads only what it
+// needs to address the alert, and grants the caller nothing.
 //
 // Every failure is swallowed and logged: a notification must never break the
 // underlying create/update the user just performed.
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { emailConfigured, escapeHtml, sendEmail } from "@/lib/email";
+import { sendSlackMessage, slackEscape } from "@/lib/slack";
+import type { Database } from "@/lib/database.types";
+
+type DB = SupabaseClient<Database>;
 
 export type WorkstreamEvent =
   | { kind: "submitted" }
@@ -28,20 +39,12 @@ interface RequestForNotify {
   product: { name: string } | null;
 }
 
-/**
- * Email the owning team(s) of a request's workstream about an event, excluding
- * whoever triggered it. No-ops (silently) when email isn't configured, when the
- * request has no workstream, or when the workstream has no owning team.
- */
 export async function notifyWorkstreamOwners(opts: {
   requestId: string;
   actorId: string;
   event: WorkstreamEvent;
 }): Promise<void> {
   try {
-    // Skip all DB work if we couldn't send anyway.
-    if (!emailConfigured()) return;
-
     const admin = createAdminClient();
 
     const { data: req, error: reqErr } = await admin
@@ -64,49 +67,80 @@ export async function notifyWorkstreamOwners(opts: {
     const teamIds = [...new Set((ownerRows ?? []).map((o) => o.team_id))];
     if (teamIds.length === 0) return; // unowned workstream
 
-    const { data: members, error: memErr } = await admin
-      .from("profiles")
-      .select("id, email, full_name")
-      .in("team_id", teamIds)
-      .returns<{ id: string; email: string | null; full_name: string | null }[]>();
-    if (memErr) throw new Error(memErr.message);
-
-    // Owning-team members, minus the actor, deduped by email.
-    const seen = new Set<string>();
-    const recipients = (members ?? [])
-      .filter((m) => m.id !== opts.actorId && m.email)
-      .filter((m) => {
-        const key = (m.email as string).toLowerCase();
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      })
-      .map((m) => ({ email: m.email as string, name: m.full_name }));
-    if (recipients.length === 0) return;
-
     const content = buildContent(req, opts.event);
 
-    const results = await Promise.allSettled(
-      recipients.map((r) =>
-        sendEmail({
-          to: r.email,
-          subject: content.subject,
-          html: content.html,
-          text: content.text,
-        })
-      )
-    );
-    const sent = results.filter(
-      (r) => r.status === "fulfilled" && r.value.sent
-    ).length;
-    if (sent < recipients.length) {
-      console.warn(
-        `[notifications] ${content.subject}: sent ${sent}/${recipients.length}`
-      );
-    }
+    // Deliver to whatever channels are configured; both are best-effort.
+    await Promise.allSettled([
+      deliverSlack(admin, teamIds, content.slackText),
+      emailConfigured()
+        ? deliverEmail(admin, teamIds, opts.actorId, content)
+        : Promise.resolve(),
+    ]);
   } catch (err) {
     console.error("[notifications] notifyWorkstreamOwners failed", err);
   }
+}
+
+/** Post the alert to each owning team's Slack channel (those with a webhook). */
+async function deliverSlack(
+  admin: DB,
+  teamIds: string[],
+  slackText: string
+): Promise<void> {
+  const { data: hooks, error } = await admin
+    .from("team_slack_webhooks")
+    .select("team_id, webhook_url")
+    .in("team_id", teamIds)
+    .returns<{ team_id: string; webhook_url: string }[]>();
+  if (error) {
+    console.error("[notifications] slack webhook lookup failed", error.message);
+    return;
+  }
+  if (!hooks || hooks.length === 0) return;
+  await Promise.allSettled(
+    hooks.map((h) => sendSlackMessage(h.webhook_url, slackText))
+  );
+}
+
+/** Email each owning-team member (deduped, minus the actor). */
+async function deliverEmail(
+  admin: DB,
+  teamIds: string[],
+  actorId: string,
+  content: { subject: string; html: string; text: string }
+): Promise<void> {
+  const { data: members, error } = await admin
+    .from("profiles")
+    .select("id, email, full_name")
+    .in("team_id", teamIds)
+    .returns<{ id: string; email: string | null; full_name: string | null }[]>();
+  if (error) {
+    console.error("[notifications] member lookup failed", error.message);
+    return;
+  }
+
+  const seen = new Set<string>();
+  const recipients = (members ?? [])
+    .filter((m) => m.id !== actorId && m.email)
+    .filter((m) => {
+      const key = (m.email as string).toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .map((m) => m.email as string);
+  if (recipients.length === 0) return;
+
+  await Promise.allSettled(
+    recipients.map((to) =>
+      sendEmail({
+        to,
+        subject: content.subject,
+        html: content.html,
+        text: content.text,
+      })
+    )
+  );
 }
 
 function siteUrl(): string {
@@ -116,7 +150,7 @@ function siteUrl(): string {
 function buildContent(
   req: RequestForNotify,
   event: WorkstreamEvent
-): { subject: string; html: string; text: string } {
+): { subject: string; html: string; text: string; slackText: string } {
   const workstream = req.product?.name ?? "a workstream";
   const requester = req.team?.name ?? "an unassigned team";
   const title = req.title || "Untitled request";
@@ -144,6 +178,21 @@ function buildContent(
     "— Beacon",
   ]
     .filter((l) => l !== null)
+    .join("\n");
+
+  // Slack mrkdwn. Escape the dynamic spans; render the link as <url|label>.
+  const slackText = [
+    `:bell: *${slackEscape(subject)}*`,
+    slackEscape(lead),
+    `*Workstream:* ${slackEscape(workstream)}  •  *Requesting team:* ${slackEscape(
+      requester
+    )}` +
+      (event.kind === "status_changed"
+        ? `  •  *Status:* ${slackEscape(event.statusLabel)}`
+        : ""),
+    link ? `<${link}|Open request>` : "",
+  ]
+    .filter((l) => l.length > 0)
     .join("\n");
 
   const eTitle = escapeHtml(title);
@@ -174,5 +223,5 @@ function buildContent(
   <p style="margin-top:28px;color:#9ca3af;font-size:12px;">You're receiving this because your team owns the ${eWorkstream} workstream in Beacon.</p>
 </div>`;
 
-  return { subject, html, text };
+  return { subject, html, text, slackText };
 }
