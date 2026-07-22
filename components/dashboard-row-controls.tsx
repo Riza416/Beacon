@@ -85,6 +85,7 @@ export function DashboardRowControls({
           current={currentPriority}
           max={requesterMax}
           successLabel="Team priority"
+          scopeHint="among this team's requests in this workstream"
           commit={(n) => setTeamPriority(requestId, n)}
         />
       )}
@@ -94,6 +95,7 @@ export function DashboardRowControls({
           current={currentWorkstreamPriority}
           max={workstreamMax}
           successLabel="Workstream priority"
+          scopeHint="across every request in this workstream"
           commit={(n) => setWorkstreamPriority(requestId, n)}
         />
       )}
@@ -141,6 +143,7 @@ function PriorityStepper({
   current,
   max,
   successLabel,
+  scopeHint,
   commit,
 }: {
   /** Human label, e.g. "Team rank" / "Workstream rank". */
@@ -150,6 +153,8 @@ function PriorityStepper({
   /** Number of requests in the group; rank can't exceed this. */
   max: number;
   successLabel: string;
+  /** Explains what the rank is measured against (shown in the tooltip). */
+  scopeHint: string;
   /** Receives the 0-based target index. */
   commit: (value: number) => Promise<unknown>;
 }) {
@@ -164,7 +169,7 @@ function PriorityStepper({
   const cap = Math.max(max, 1);
   const atTop = current <= 0;
   const atBottom = current >= cap - 1;
-  const title = `${successLabel} — #${current + 1} of ${cap}. Lower number = higher priority.`;
+  const title = `${successLabel}: #${current + 1} of ${cap} ${scopeHint}. Lower number = higher priority.`;
 
   // Move to a 0-based target index (clamped), then persist.
   function moveTo(targetIndex: number) {
