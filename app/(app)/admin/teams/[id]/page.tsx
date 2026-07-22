@@ -20,6 +20,8 @@ import { RemoveMemberButton } from "../_components/remove-member-button";
 import { DeleteTeamButton } from "../_components/delete-team-button";
 import { MemberRoleControls } from "../_components/member-role-controls";
 import { MemberProductPermissionToggle } from "@/app/(app)/team/_components/member-product-permission-toggle";
+import { SlackWebhookCard } from "@/app/(app)/team/_components/slack-webhook-card";
+import { teamSlackConfigured } from "@/app/(app)/team/actions";
 
 interface TeamRequestRow {
   id: string;
@@ -95,6 +97,8 @@ export default async function TeamDetailPage({
       .returns<TeamRequestRow[]>();
     dependencyRequests = depRows ?? [];
   }
+
+  const slackConfigured = await teamSlackConfigured(id);
 
   return (
     <div className="space-y-8">
@@ -227,6 +231,11 @@ export default async function TeamDetailPage({
             )}
           </CardContent>
         </Card>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-lg font-medium">Alerts</h2>
+        <SlackWebhookCard teamId={team.id} initialConfigured={slackConfigured} />
       </section>
     </div>
   );
