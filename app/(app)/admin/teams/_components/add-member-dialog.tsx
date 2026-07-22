@@ -149,9 +149,16 @@ export function AddMemberDialog({ teamId, candidates }: AddMemberDialogProps) {
         ) : (
           <div className="space-y-3">
             <Input
+              type="email"
               placeholder="Search a name, or type an email to invite…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter" || isPending) return;
+                e.preventDefault();
+                if (canInvite) invite();
+                else if (filtered.length === 1) addMember(filtered[0].id);
+              }}
               autoFocus
             />
             <div className="max-h-72 space-y-1 overflow-auto rounded-md border">
@@ -159,7 +166,9 @@ export function AddMemberDialog({ teamId, candidates }: AddMemberDialogProps) {
                 <div className="p-4 text-center text-sm text-muted-foreground">
                   {canInvite
                     ? "No existing user — invite them below."
-                    : "No one to add."}
+                    : trimmed.length > 0
+                      ? "No match — type a full email address to invite someone new."
+                      : "No one to add."}
                 </div>
               ) : (
                 filtered.map((c) => (
