@@ -6,6 +6,7 @@ import { z } from "zod";
 import { authedAction, adminAction, canManageTeam } from "@/lib/actions/utils";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { notifyWorkstreamOwners } from "@/lib/notifications";
+import { resolveFieldsForProduct } from "@/lib/workstream-template";
 import * as priority from "@/lib/priority";
 import type {
   FieldDefinition,
@@ -246,15 +247,12 @@ async function persistFormState(
     await priority.compactWorkstream(supabase, oldProductId);
   }
 
-  // Load active field definitions to know how to interpret values
-  const { data: fields, error: fdErr } = await supabase
-    .from("request_field_definitions")
-    .select("*")
-    .eq("is_active", true)
-    .returns<FieldDefinition[]>();
-  if (fdErr) throw new Error(fdErr.message);
-
-  if (!fields || fields.length === 0) return;
+  // Only persist values for fields in THIS workstream's template. Resolving by
+  // the new product_id means switching workstreams stops accepting values for
+  // fields that workstream doesn't collect (and a request with no workstream
+  // saves no custom values at all).
+  const fields = await resolveFieldsForProduct(supabase, parsed.productId);
+  if (fields.length === 0) return;
 
   // Index field defs by id and capture the set of currently-allowed types per
   // field. Anything submitted for a type not in this set is dropped (the form
@@ -320,6 +318,18 @@ export async function saveDraft(
   return { ok: true };
 }
 
+/**
+ * Resolve a workstream's template for the request form. Called client-side when
+ * the author changes the workstream dropdown so the field set re-renders. Any
+ * authenticated user filling in a form may call it (read-only).
+ */
+export async function getRequestTemplate(
+  productId: string | null
+): Promise<FieldDefinition[]> {
+  const { supabase } = await authedAction();
+  return resolveFieldsForProduct(supabase, productId);
+}
+
 export async function submitRequest(
   requestId: string,
   state: FormState | null,
@@ -351,12 +361,19 @@ export async function submitRequest(
   }
 
   const { supabase } = ctx;
-  const { data: fields, error: fdErr } = await supabase
-    .from("request_field_definitions")
-    .select("*")
-    .eq("is_active", true)
-    .returns<FieldDefinition[]>();
-  if (fdErr) throw new Error(fdErr.message);
+
+  // The request's template is per workstream, and persistFormState above may
+  // have just changed the workstream — so read the current product_id and
+  // resolve the fields (and required levels) for it.
+  const { data: cur, error: curErr } = await supabase
+    .from("requests")
+    .select("product_id, summary")
+    .eq("id", requestId)
+    .maybeSingle<{ product_id: string | null; summary: string | null }>();
+  if (curErr) throw new Error(curErr.message);
+  const currentProductId = cur?.product_id ?? null;
+
+  const fields = await resolveFieldsForProduct(supabase, currentProductId);
 
   const { data: values, error: fvErr } = await supabase
     .from("request_field_values")
@@ -404,30 +421,28 @@ export async function submitRequest(
     return false;
   }
 
-  const hardMissing = (fields ?? [])
+  const hardMissing = fields
     .filter((f) => f.required_level === "hard" && !isFilled(f))
     .map((f) => ({ id: f.id, label: f.label }));
 
-  // Summary is a built-in field on the request row (not a custom
-  // request_field_definition), so its required-to-submit check lives here.
-  // We re-read the row because persistFormState above may have just updated
-  // it from the form state — the `req` snapshot from assertEditable is stale.
-  const { data: freshReq, error: freshErr } = await supabase
-    .from("requests")
-    .select("summary")
-    .eq("id", requestId)
-    .maybeSingle<{ summary: string | null }>();
-  if (freshErr) throw new Error(freshErr.message);
-  const persistedSummary = freshReq?.summary ?? null;
+  // Summary is a built-in field on the request row (read alongside product_id
+  // above, since persistFormState may have just changed both).
+  const persistedSummary = cur?.summary ?? null;
   if (!persistedSummary || persistedSummary.trim().length === 0) {
     hardMissing.unshift({ id: "__summary__", label: "Summary" });
+  }
+
+  // A workstream is required to submit — its owner's template defines what this
+  // request must include, so there's nothing to validate against without one.
+  if (!currentProductId) {
+    hardMissing.unshift({ id: "__workstream__", label: "Workstream" });
   }
 
   if (hardMissing.length > 0) {
     return { ok: false, kind: "hard", missing: hardMissing };
   }
 
-  const softMissing = (fields ?? [])
+  const softMissing = fields
     .filter((f) => f.required_level === "soft" && !isFilled(f))
     .map((f) => ({ id: f.id, label: f.label }));
 

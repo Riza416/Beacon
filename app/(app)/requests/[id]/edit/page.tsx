@@ -11,7 +11,8 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { RequestForm } from "@/components/request-form";
-import type { FieldDefinition, FieldValue, RequestRow } from "@/lib/types";
+import { resolveFieldsForProduct } from "@/lib/workstream-template";
+import type { FieldValue, RequestRow } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -42,12 +43,11 @@ export default async function EditRequestPage({ params }: EditPageProps) {
     redirect(`/requests/${id}`);
   }
 
-  const { data: fields } = await supabase
-    .from("request_field_definitions")
-    .select("*")
-    .eq("is_active", true)
-    .order("display_order", { ascending: true })
-    .returns<FieldDefinition[]>();
+  // Fields are the SELECTED workstream's template (resolved by the shared
+  // resolver so display and submit-validation agree). No workstream → no
+  // custom fields until the author picks one; the form fetches the template
+  // again when the workstream dropdown changes.
+  const fields = await resolveFieldsForProduct(supabase, request.product_id);
 
   const { data: values } = await supabase
     .from("request_field_values")

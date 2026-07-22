@@ -84,6 +84,9 @@ create table public.request_field_definitions (
   options jsonb,
   display_order integer not null default 0,
   is_active boolean not null default true,
+  -- NULL = shared catalog field (admin-managed). Set = a custom field owned by
+  -- a workstream, only usable in that workstream's template.
+  product_id uuid references public.products(id) on delete cascade,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint request_field_definitions_field_types_check check (
@@ -137,6 +140,19 @@ create table public.request_field_values (
   constraint request_field_values_unique unique (request_id, field_definition_id, field_type)
 );
 create index rfv_request_idx on public.request_field_values(request_id);
+
+-- Per-workstream request template: which fields a workstream collects, at what
+-- required level (overriding the field's catalog default), and in what order.
+create table public.workstream_field_config (
+  product_id uuid not null references public.products(id) on delete cascade,
+  field_definition_id uuid not null references public.request_field_definitions(id) on delete cascade,
+  required_level text not null default 'optional'
+    check (required_level in ('hard','soft','optional')),
+  display_order integer not null default 0,
+  created_at timestamptz not null default now(),
+  primary key (product_id, field_definition_id)
+);
+create index wfc_product_idx on public.workstream_field_config (product_id, display_order);
 
 create table public.request_collaborators (
   request_id uuid not null references public.requests(id) on delete cascade,
@@ -286,6 +302,13 @@ create policy rfv_author_write on public.request_field_values for all to authent
   with check (exists (select 1 from public.requests r
     where r.id = request_field_values.request_id and r.author_id = auth.uid() and r.state = 'draft'));
 create policy rfv_admin_all on public.request_field_values for all to authenticated
+  using (public.is_admin(auth.uid())) with check (public.is_admin(auth.uid()));
+
+-- workstream_field_config: all read (form needs it); admins mutate directly,
+-- owning-team writes go through the service-role client after a server check.
+alter table public.workstream_field_config enable row level security;
+create policy wfc_read_all on public.workstream_field_config for select to authenticated using (true);
+create policy wfc_admin_all on public.workstream_field_config for all to authenticated
   using (public.is_admin(auth.uid())) with check (public.is_admin(auth.uid()));
 
 -- tag tables: all read; author or admin mutate.

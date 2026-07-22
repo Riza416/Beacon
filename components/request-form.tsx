@@ -30,6 +30,7 @@ import {
   saveDraft,
   submitRequest,
   setFieldFile,
+  getRequestTemplate,
 } from "@/app/(app)/requests/actions";
 import { X } from "lucide-react";
 import { ScreenshotInput } from "@/components/screenshot-input";
@@ -111,7 +112,7 @@ function valueForType(type: FieldType, v: FieldValue | undefined): FormValue {
 
 export function RequestForm({
   request,
-  fields,
+  fields: initialFields,
   values,
   canSubmit,
   hasTeam,
@@ -128,6 +129,37 @@ export function RequestForm({
   const [productId, setProductId] = React.useState<string | null>(
     request.product_id ?? null
   );
+
+  // Fields are the SELECTED workstream's template. Seeded from the server for
+  // the initial workstream; refetched when the author switches workstream so
+  // the requirements always match what that workstream's owner configured.
+  const [fields, setFields] = React.useState<FieldDefinition[]>(initialFields);
+  const [templateLoading, setTemplateLoading] = React.useState(false);
+  const didMount = React.useRef(false);
+
+  React.useEffect(() => {
+    // Skip the first run — the server already gave us the initial template.
+    if (!didMount.current) {
+      didMount.current = true;
+      return;
+    }
+    let cancelled = false;
+    setTemplateLoading(true);
+    getRequestTemplate(productId)
+      .then((next) => {
+        if (!cancelled) setFields(next);
+      })
+      .catch(() => {
+        if (!cancelled)
+          toast.error("Couldn't load this workstream's fields");
+      })
+      .finally(() => {
+        if (!cancelled) setTemplateLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [productId]);
   const [deadline, setDeadline] = React.useState<string>(
     request.deadline ?? ""
   );
@@ -170,6 +202,38 @@ export function RequestForm({
   const [filePaths, setFilePaths] =
     React.useState<Record<string, string | null>>(initialFilePaths);
   const [uploadingKey, setUploadingKey] = React.useState<string | null>(null);
+
+  // When the resolved template changes (workstream switched), make sure every
+  // current field key has an entry — seeding new ones from saved values —
+  // without wiping anything the author already typed for fields that remain.
+  React.useEffect(() => {
+    const byKey = new Map<string, FieldValue>();
+    for (const v of values) {
+      byKey.set(fieldKey(v.field_definition_id, v.field_type), v);
+    }
+    setFormValues((prev) => {
+      const next = { ...prev };
+      for (const f of fields) {
+        for (const t of allowedTypes(f)) {
+          const k = fieldKey(f.id, t);
+          if (!(k in next)) next[k] = valueForType(t, byKey.get(k));
+        }
+      }
+      return next;
+    });
+    setFilePaths((prev) => {
+      const next = { ...prev };
+      for (const f of fields) {
+        for (const t of allowedTypes(f)) {
+          if (t === "file" || t === "image") {
+            const k = fieldKey(f.id, t);
+            if (!(k in next)) next[k] = byKey.get(k)?.file_path ?? null;
+          }
+        }
+      }
+      return next;
+    });
+  }, [fields, values]);
 
   const [isPending, startTransition] = React.useTransition();
   const [softModal, setSoftModal] = React.useState<{
@@ -523,6 +587,24 @@ export function RequestForm({
         )}
       </div>
 
+      {templateLoading && (
+        <p className="text-sm text-muted-foreground">
+          Loading this workstream&apos;s fields…
+        </p>
+      )}
+      {!templateLoading && !productId && (
+        <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+          Pick a workstream above to see the details it asks for. A workstream
+          is required to submit.
+        </div>
+      )}
+      {!templateLoading && productId && fields.length === 0 && (
+        <p className="text-sm text-muted-foreground">
+          This workstream doesn&apos;t ask for any extra fields — just fill in
+          the summary above.
+        </p>
+      )}
+
       {fields.map((f) => {
         const types = allowedTypes(f);
         const showSubLabels = types.length > 1;
@@ -700,11 +782,13 @@ export function RequestForm({
         {canSubmit && (
           <Button
             onClick={() => doSubmit(false)}
-            disabled={isPending || !hasTeam}
+            disabled={isPending || !hasTeam || !productId}
             title={
-              hasTeam
-                ? undefined
-                : "You need to be on a team before submitting"
+              !hasTeam
+                ? "You need to be on a team before submitting"
+                : !productId
+                  ? "Pick a workstream before submitting"
+                  : undefined
             }
           >
             {isPending ? "Submitting…" : "Submit to product team"}
@@ -714,6 +798,11 @@ export function RequestForm({
           <p className="basis-full text-xs text-muted-foreground">
             You can save drafts, but submission requires you to be on a team.
             Ask an admin to add you.
+          </p>
+        )}
+        {canSubmit && hasTeam && !productId && (
+          <p className="basis-full text-xs text-muted-foreground">
+            Pick a workstream to submit — its owner sets what this request needs.
           </p>
         )}
       </div>

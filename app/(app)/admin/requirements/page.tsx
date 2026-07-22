@@ -35,9 +35,12 @@ function requiredLevelVariant(
 
 export default async function AdminRequirementsPage() {
   const supabase = await createClient();
+  // Only the shared catalog (product_id null). Workstream-custom fields are
+  // managed on each workstream's template page, not here.
   const { data: fields } = await supabase
     .from("request_field_definitions")
     .select("*")
+    .is("product_id", null)
     .order("display_order", { ascending: true })
     .returns<FieldDefinition[]>();
 

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -119,6 +120,11 @@ export default async function AdminProductsPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
+                          <Button asChild variant="outline" size="sm">
+                            <Link href={`/admin/products/${p.id}/template`}>
+                              Template
+                            </Link>
+                          </Button>
                           <ProductDialog
                             mode="edit"
                             product={p}

@@ -39,6 +39,14 @@ export type FieldDefinition = Omit<
   options: string[] | null;
 };
 
+/** A row of a workstream's request template (which field, at what level/order). */
+export type WorkstreamFieldConfig = Omit<
+  Row<"workstream_field_config">,
+  "required_level"
+> & {
+  required_level: RequiredLevel;
+};
+
 export type RequestRow = Omit<Row<"requests">, "state"> & {
   state: RequestState;
 };

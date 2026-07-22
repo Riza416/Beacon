@@ -150,6 +150,13 @@ export default async function TeamProductsPage() {
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
                           {mayEdit && (
+                            <Button asChild variant="outline" size="sm">
+                              <Link href={`/team/products/${p.id}/template`}>
+                                Template
+                              </Link>
+                            </Button>
+                          )}
+                          {mayEdit && (
                             <TeamProductDialog
                               mode="edit"
                               product={p}
