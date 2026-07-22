@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { authedAction, adminAction, canManageTeam } from "@/lib/actions/utils";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { notifyWorkstreamOwners } from "@/lib/notifications";
 import * as priority from "@/lib/priority";
 import type {
   FieldDefinition,
@@ -440,6 +441,15 @@ export async function submitRequest(
     .eq("id", requestId);
   if (updErr) throw new Error(updErr.message);
 
+  // Alert the owning team(s) of this workstream that a new request landed.
+  // Awaited (serverless freezes background work after the response) but
+  // internally failure-tolerant, so it never blocks the submit.
+  await notifyWorkstreamOwners({
+    requestId,
+    actorId: ctx.profile.id,
+    event: { kind: "submitted" },
+  });
+
   revalidatePath(`/requests/${requestId}`);
   revalidatePath(`/requests/${requestId}/edit`);
   revalidatePath("/requests/mine");
@@ -509,12 +519,34 @@ export async function updateRequestStatus(
   requestId: string,
   statusId: string
 ): Promise<{ ok: true }> {
-  const { supabase } = await adminAction();
+  const { supabase, profile } = await adminAction();
+
+  // Read the prior status so we only alert on an ACTUAL change (re-selecting
+  // the same status is a no-op and shouldn't email anyone).
+  const { data: before } = await supabase
+    .from("requests")
+    .select("status_id")
+    .eq("id", requestId)
+    .maybeSingle<{ status_id: string | null }>();
+
   const { error } = await supabase
     .from("requests")
     .update({ status_id: statusId })
     .eq("id", requestId);
   if (error) throw new Error(error.message);
+
+  if (before?.status_id !== statusId) {
+    const { data: st } = await supabase
+      .from("statuses")
+      .select("label")
+      .eq("id", statusId)
+      .maybeSingle<{ label: string }>();
+    await notifyWorkstreamOwners({
+      requestId,
+      actorId: profile.id,
+      event: { kind: "status_changed", statusLabel: st?.label ?? "Updated" },
+    });
+  }
 
   revalidatePath(`/requests/${requestId}`);
   revalidatePath("/");
