@@ -9,9 +9,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { Team } from "@/lib/types";
+import type { Company, Team } from "@/lib/types";
 import { TEAM_WITH_MEMBER_COUNT_SELECT } from "@/lib/queries";
 import { CreateTeamDialog } from "./_components/create-team-dialog";
+import { CompaniesManager } from "./_components/companies-manager";
 
 type TeamWithMembers = Team & {
   members: { count: number }[] | null;
@@ -19,13 +20,23 @@ type TeamWithMembers = Team & {
 
 export default async function AdminTeamsPage() {
   const supabase = await createClient();
-  const { data: teams } = await supabase
-    .from("teams")
-    // Explicit FK path required: request_team_tag_views introduced a second
-    // teams⇄profiles relationship that PostgREST can't pick between.
-    .select(TEAM_WITH_MEMBER_COUNT_SELECT)
-    .order("name", { ascending: true })
-    .returns<TeamWithMembers[]>();
+  const [{ data: teams }, { data: companies }] = await Promise.all([
+    supabase
+      .from("teams")
+      // Explicit FK path required: request_team_tag_views introduced a second
+      // teams⇄profiles relationship that PostgREST can't pick between.
+      .select(TEAM_WITH_MEMBER_COUNT_SELECT)
+      .order("name", { ascending: true })
+      .returns<TeamWithMembers[]>(),
+    supabase
+      .from("companies")
+      .select("id, name")
+      .order("name", { ascending: true })
+      .returns<Pick<Company, "id" | "name">[]>(),
+  ]);
+  const companyNameById = new Map(
+    (companies ?? []).map((c) => [c.id, c.name])
+  );
 
   return (
     <div className="space-y-8">
@@ -36,8 +47,10 @@ export default async function AdminTeamsPage() {
             Group people for tagging, routing, and visibility.
           </p>
         </div>
-        <CreateTeamDialog />
+        <CreateTeamDialog companies={companies ?? []} />
       </header>
+
+      <CompaniesManager companies={companies ?? []} />
 
       <Card>
         <CardContent className="p-0">
@@ -49,7 +62,7 @@ export default async function AdminTeamsPage() {
                 visibility.
               </p>
               <div className="mt-2">
-                <CreateTeamDialog />
+                <CreateTeamDialog companies={companies ?? []} />
               </div>
             </div>
           ) : (
@@ -57,6 +70,7 @@ export default async function AdminTeamsPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Name</TableHead>
+                  <TableHead>Company</TableHead>
                   <TableHead>Description</TableHead>
                   <TableHead className="w-24">Members</TableHead>
                 </TableRow>
@@ -73,6 +87,11 @@ export default async function AdminTeamsPage() {
                         >
                           {team.name}
                         </Link>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {team.company_id
+                          ? companyNameById.get(team.company_id) ?? "—"
+                          : "—"}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {team.description || "—"}

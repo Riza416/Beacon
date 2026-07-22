@@ -45,6 +45,27 @@ export type Database = {
           },
         ];
       };
+      companies: {
+        Row: {
+          id: string;
+          name: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          name?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       product_owners: {
         Row: {
           product_id: string;
@@ -425,13 +446,6 @@ export type Database = {
         };
         Relationships: [
           {
-            foreignKeyName: "requests_author_id_fkey";
-            columns: ["author_id"];
-            isOneToOne: false;
-            referencedRelation: "profiles";
-            referencedColumns: ["id"];
-          },
-          {
             foreignKeyName: "requests_team_id_fkey";
             columns: ["team_id"];
             isOneToOne: false;
@@ -443,6 +457,13 @@ export type Database = {
             columns: ["product_id"];
             isOneToOne: false;
             referencedRelation: "products";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "requests_author_id_fkey";
+            columns: ["author_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
             referencedColumns: ["id"];
           },
           {
@@ -523,6 +544,7 @@ export type Database = {
           description: string | null;
           created_at: string;
           updated_at: string;
+          company_id: string | null;
         };
         Insert: {
           id?: string;
@@ -530,6 +552,7 @@ export type Database = {
           description?: string | null;
           created_at?: string;
           updated_at?: string;
+          company_id?: string | null;
         };
         Update: {
           id?: string;
@@ -537,8 +560,17 @@ export type Database = {
           description?: string | null;
           created_at?: string;
           updated_at?: string;
+          company_id?: string | null;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "teams_company_id_fkey";
+            columns: ["company_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       workstream_field_config: {
         Row: {
@@ -567,17 +599,17 @@ export type Database = {
         };
         Relationships: [
           {
-            foreignKeyName: "workstream_field_config_field_definition_id_fkey";
-            columns: ["field_definition_id"];
-            isOneToOne: false;
-            referencedRelation: "request_field_definitions";
-            referencedColumns: ["id"];
-          },
-          {
             foreignKeyName: "workstream_field_config_product_id_fkey";
             columns: ["product_id"];
             isOneToOne: false;
             referencedRelation: "products";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "workstream_field_config_field_definition_id_fkey";
+            columns: ["field_definition_id"];
+            isOneToOne: false;
+            referencedRelation: "request_field_definitions";
             referencedColumns: ["id"];
           },
         ];

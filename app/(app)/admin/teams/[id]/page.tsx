@@ -51,6 +51,12 @@ export default async function TeamDetailPage({
 
   if (!team) notFound();
 
+  const { data: companies } = await supabase
+    .from("companies")
+    .select("id, name")
+    .order("name", { ascending: true })
+    .returns<{ id: string; name: string }[]>();
+
   const { data: members } = await supabase
     .from("profiles")
     .select("*")
@@ -116,7 +122,7 @@ export default async function TeamDetailPage({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <EditTeamDialog team={team} />
+          <EditTeamDialog team={team} companies={companies ?? []} />
           <DeleteTeamButton teamId={team.id} teamName={team.name} />
         </div>
       </header>

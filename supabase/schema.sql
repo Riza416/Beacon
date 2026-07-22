@@ -16,10 +16,20 @@ create extension if not exists "pgcrypto";
 -- ---------------------------------------------------------------------------
 -- Tables
 -- ---------------------------------------------------------------------------
+-- Admin-managed catalog of companies a team can belong to.
+create table public.companies (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create table public.teams (
   id uuid primary key default gen_random_uuid(),
   name text not null unique,
   description text,
+  -- Optional company this team belongs to (cleared if the company is deleted).
+  company_id uuid references public.companies(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -281,6 +291,12 @@ create policy profiles_admin_all on public.profiles for all to authenticated
 -- management + the alert sender go through the service-role client.
 alter table public.team_slack_webhooks enable row level security;
 create policy team_slack_webhooks_admin_all on public.team_slack_webhooks for all to authenticated
+  using (public.is_admin(auth.uid())) with check (public.is_admin(auth.uid()));
+
+-- companies: all read; admins mutate the catalog.
+alter table public.companies enable row level security;
+create policy companies_read_all on public.companies for select to authenticated using (true);
+create policy companies_admin_all on public.companies for all to authenticated
   using (public.is_admin(auth.uid())) with check (public.is_admin(auth.uid()));
 
 create policy teams_read_all on public.teams for select to authenticated using (true);

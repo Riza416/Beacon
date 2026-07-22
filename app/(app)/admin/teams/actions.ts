@@ -14,12 +14,21 @@ function friendlyTeamError(err: { code?: string; message: string }, name: string
   return new Error(err.message);
 }
 
+/** Empty / "none" select value → null; otherwise the company id. */
+function parseCompanyId(formData: FormData): string | null {
+  const raw = String(formData.get("company_id") ?? "").trim();
+  return raw && raw !== "__none__" ? raw : null;
+}
+
 export async function createTeam(formData: FormData) {
   const { supabase } = await adminAction();
   const name = String(formData.get("name") ?? "").trim();
   const description = String(formData.get("description") ?? "").trim() || null;
+  const company_id = parseCompanyId(formData);
   if (!name) throw new Error("Name is required");
-  const { error } = await supabase.from("teams").insert({ name, description });
+  const { error } = await supabase
+    .from("teams")
+    .insert({ name, description, company_id });
   if (error) throw friendlyTeamError(error, name);
   revalidatePath("/admin/teams");
 }
@@ -29,15 +38,42 @@ export async function updateTeam(formData: FormData) {
   const id = String(formData.get("id") ?? "");
   const name = String(formData.get("name") ?? "").trim();
   const description = String(formData.get("description") ?? "").trim() || null;
+  const company_id = parseCompanyId(formData);
   if (!id) throw new Error("Team id required");
   if (!name) throw new Error("Name is required");
   const { error } = await supabase
     .from("teams")
-    .update({ name, description })
+    .update({ name, description, company_id })
     .eq("id", id);
   if (error) throw friendlyTeamError(error, name);
   revalidatePath("/admin/teams");
   revalidatePath(`/admin/teams/${id}`);
+}
+
+// --- Companies catalog ------------------------------------------------------
+
+export async function createCompany(formData: FormData) {
+  const { supabase } = await adminAction();
+  const name = String(formData.get("name") ?? "").trim();
+  if (!name) throw new Error("Company name is required");
+  const { error } = await supabase.from("companies").insert({ name });
+  if (error) {
+    if (error.code === UNIQUE_VIOLATION) {
+      throw new Error(`A company called "${name}" already exists.`);
+    }
+    throw new Error(error.message);
+  }
+  revalidatePath("/admin/teams");
+}
+
+export async function deleteCompany(formData: FormData) {
+  const { supabase } = await adminAction();
+  const id = String(formData.get("id") ?? "");
+  if (!id) throw new Error("Company id required");
+  // FK is ON DELETE SET NULL, so teams in this company simply lose the link.
+  const { error } = await supabase.from("companies").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+  revalidatePath("/admin/teams");
 }
 
 export async function deleteTeam(formData: FormData) {
