@@ -21,6 +21,8 @@ import {
   type TagPickerTeam,
 } from "@/components/tag-picker";
 import { markTagsViewed } from "@/app/(app)/requests/actions";
+import { RepoActions } from "@/components/repo-actions";
+import { resolveFieldsForProduct } from "@/lib/workstream-template";
 import { COMMENT_SELECT, REQUEST_DETAIL_SELECT } from "@/lib/queries";
 import { formatDate } from "@/lib/utils";
 import type {
@@ -41,6 +43,7 @@ const TYPE_CAPTIONS: Record<FieldType, string> = {
   select: "",
   multi_select: "Pick several",
   checkbox: "Yes / no",
+  repo: "Repository",
 };
 
 function allowedTypes(f: FieldDefinition): FieldType[] {
@@ -78,12 +81,9 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
 
   if (!request) notFound();
 
-  const { data: fields } = await supabase
-    .from("request_field_definitions")
-    .select("*")
-    .eq("is_active", true)
-    .order("display_order", { ascending: true })
-    .returns<FieldDefinition[]>();
+  // Show the workstream's template (same resolver the request form uses), so
+  // the detail view matches the fields the author actually filled in.
+  const fields = await resolveFieldsForProduct(supabase, request.product_id);
 
   const { data: values } = await supabase
     .from("request_field_values")
@@ -429,6 +429,7 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
 }
 
 function FieldValueRenderer({
+  field,
   displayType,
   value,
   signedUrls,
@@ -438,6 +439,15 @@ function FieldValueRenderer({
   value: FieldValue | undefined;
   signedUrls: Map<string, string>;
 }) {
+  // Repo fields are owner-configured, not author-filled — render the repo with
+  // its action links from the resolved repo_url (there is no stored value).
+  if (displayType === "repo") {
+    return field.repo_url ? (
+      <RepoActions url={field.repo_url} />
+    ) : (
+      <p className="text-sm text-muted-foreground">No repository set.</p>
+    );
+  }
   if (!value) {
     return <p className="text-sm text-muted-foreground">—</p>;
   }

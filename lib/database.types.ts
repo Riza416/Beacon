@@ -518,6 +518,7 @@ export type Database = {
           required_level: string;
           display_order: number;
           created_at: string;
+          repo_url: string | null;
         };
         Insert: {
           product_id: string;
@@ -525,6 +526,7 @@ export type Database = {
           required_level?: string;
           display_order?: number;
           created_at?: string;
+          repo_url?: string | null;
         };
         Update: {
           product_id?: string;
@@ -532,6 +534,7 @@ export type Database = {
           required_level?: string;
           display_order?: number;
           created_at?: string;
+          repo_url?: string | null;
         };
         Relationships: [
           {

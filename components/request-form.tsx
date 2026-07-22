@@ -34,6 +34,7 @@ import {
 } from "@/app/(app)/requests/actions";
 import { X } from "lucide-react";
 import { ScreenshotInput } from "@/components/screenshot-input";
+import { RepoActions } from "@/components/repo-actions";
 import type { SubmitResult } from "@/lib/request-actions-types";
 import type {
   FieldDefinition,
@@ -83,6 +84,7 @@ const TYPE_CAPTIONS: Record<FieldType, string> = {
   select: "",
   multi_select: "Pick several",
   checkbox: "Yes / no",
+  repo: "Repository",
 };
 
 function fieldKey(fieldId: string, type: FieldType): string {
@@ -777,6 +779,14 @@ export function RequestForm({
                         )}
                       </div>
                     )}
+                    {t === "repo" &&
+                      (f.repo_url ? (
+                        <RepoActions url={f.repo_url} />
+                      ) : (
+                        <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
+                          No repository has been set for this workstream yet.
+                        </p>
+                      ))}
                   </div>
                 );
               })}

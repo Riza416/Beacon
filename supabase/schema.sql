@@ -79,7 +79,7 @@ create table public.request_field_definitions (
   label text not null,
   -- Legacy single-type column, kept in sync with field_types[0].
   field_type text not null check (field_type in
-    ('short_text','long_text','url','file','image','select','multi_select','checkbox')),
+    ('short_text','long_text','url','file','image','select','multi_select','checkbox','repo')),
   -- Set of allowed input types; the form renders one sub-input per entry.
   field_types text[] not null default '{}',
   required_level text not null default 'optional'
@@ -95,7 +95,7 @@ create table public.request_field_definitions (
   updated_at timestamptz not null default now(),
   constraint request_field_definitions_field_types_check check (
     field_types <@ array[
-      'short_text','long_text','url','file','image','select','multi_select','checkbox'
+      'short_text','long_text','url','file','image','select','multi_select','checkbox','repo'
     ]::text[]
     and coalesce(array_length(field_types, 1), 0) >= 1
   )
@@ -153,6 +153,8 @@ create table public.workstream_field_config (
   required_level text not null default 'optional'
     check (required_level in ('hard','soft','optional')),
   display_order integer not null default 0,
+  -- Owner-configured repo URL for a "repo" field in this workstream.
+  repo_url text,
   created_at timestamptz not null default now(),
   primary key (product_id, field_definition_id)
 );

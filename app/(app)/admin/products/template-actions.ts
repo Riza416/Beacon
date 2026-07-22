@@ -19,6 +19,7 @@ const VALID_FIELD_TYPES: FieldType[] = [
   "select",
   "multi_select",
   "checkbox",
+  "repo",
 ];
 const TYPES_WITH_OPTIONS: FieldType[] = ["select", "multi_select"];
 const VALID_REQUIRED_LEVELS: RequiredLevel[] = ["hard", "soft", "optional"];
@@ -179,6 +180,38 @@ export async function createCustomField(
     display_order: order,
   });
   if (cfgErr) throw new Error(cfgErr.message);
+  revalidateTemplate(productId);
+}
+
+/**
+ * Set (or clear) the owner-configured repo URL for a "repo" field within a
+ * workstream. Authors then see this repo on the request form with links to
+ * request access and branch off. Empty string clears it.
+ */
+export async function setRepoUrl(
+  productId: string,
+  fieldId: string,
+  url: string
+): Promise<void> {
+  const { admin } = await authorizeTemplate(productId);
+  const trimmed = url.trim();
+  if (trimmed.length > 0) {
+    let parsed: URL;
+    try {
+      parsed = new URL(trimmed);
+    } catch {
+      throw new Error("Enter a valid URL, e.g. https://github.com/org/repo");
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new Error("Repo link must be an http(s) URL");
+    }
+  }
+  const { error } = await admin
+    .from("workstream_field_config")
+    .update({ repo_url: trimmed.length > 0 ? trimmed : null })
+    .eq("product_id", productId)
+    .eq("field_definition_id", fieldId);
+  if (error) throw new Error(error.message);
   revalidateTemplate(productId);
 }
 

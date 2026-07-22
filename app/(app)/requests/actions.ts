@@ -28,6 +28,7 @@ const VALID_FIELD_TYPES: FieldType[] = [
   "select",
   "multi_select",
   "checkbox",
+  "repo",
 ];
 
 function isFieldType(s: string): s is FieldType {
@@ -389,6 +390,9 @@ export async function submitRequest(
   }
 
   function isFilledForType(type: FieldType, v: FieldValue | undefined): boolean {
+    // Repo fields are owner-configured (a workstream repo link), not filled in
+    // by the author — so they never count as "missing".
+    if (type === "repo") return true;
     if (!v) return false;
     if (type === "file" || type === "image") {
       return Boolean(v.file_path && v.file_path.length > 0);

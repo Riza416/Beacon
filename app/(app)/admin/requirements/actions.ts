@@ -13,6 +13,7 @@ const VALID_FIELD_TYPES: FieldType[] = [
   "select",
   "multi_select",
   "checkbox",
+  "repo",
 ];
 
 const TYPES_WITH_OPTIONS: FieldType[] = ["select", "multi_select"];

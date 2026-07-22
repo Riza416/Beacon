@@ -14,7 +14,8 @@ export type FieldType =
   | "image"
   | "select"
   | "multi_select"
-  | "checkbox";
+  | "checkbox"
+  | "repo";
 export type RequiredLevel = "hard" | "soft" | "optional";
 
 type Row<T extends keyof Database["public"]["Tables"]> =
@@ -37,6 +38,9 @@ export type FieldDefinition = Omit<
   field_types: FieldType[];
   required_level: RequiredLevel;
   options: string[] | null;
+  /** Owner-configured repo URL, attached by the workstream-template resolver
+   * for "repo"-type fields. Not a column on request_field_definitions. */
+  repo_url?: string | null;
 };
 
 /** A row of a workstream's request template (which field, at what level/order). */

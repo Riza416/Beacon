@@ -21,16 +21,20 @@ export async function resolveFieldsForProduct(
   if (!productId) return [];
   const { data, error } = await db
     .from("workstream_field_config")
-    .select("required_level, field:request_field_definitions!inner(*)")
+    .select("required_level, repo_url, field:request_field_definitions!inner(*)")
     .eq("product_id", productId)
     .eq("field.is_active", true)
     .order("display_order", { ascending: true })
-    .returns<{ required_level: string; field: FieldDefinition }[]>();
+    .returns<
+      { required_level: string; repo_url: string | null; field: FieldDefinition }[]
+    >();
   if (error) throw new Error(error.message);
   return (data ?? []).map((r) => ({
     ...r.field,
     // The workstream's level wins over the field's catalog default.
     required_level: r.required_level as RequiredLevel,
+    // Owner-configured repo link (only meaningful for "repo"-type fields).
+    repo_url: r.repo_url,
   }));
 }
 
@@ -40,6 +44,8 @@ export interface TemplateRow {
   display_order: number;
   /** True when this field belongs only to this workstream (a custom field). */
   isCustom: boolean;
+  /** Owner-configured repo URL (only meaningful for "repo"-type fields). */
+  repoUrl: string | null;
 }
 
 /**
@@ -52,11 +58,18 @@ export async function getWorkstreamTemplate(
 ): Promise<TemplateRow[]> {
   const { data, error } = await db
     .from("workstream_field_config")
-    .select("required_level, display_order, field:request_field_definitions!inner(*)")
+    .select(
+      "required_level, display_order, repo_url, field:request_field_definitions!inner(*)"
+    )
     .eq("product_id", productId)
     .order("display_order", { ascending: true })
     .returns<
-      { required_level: string; display_order: number; field: FieldDefinition }[]
+      {
+        required_level: string;
+        display_order: number;
+        repo_url: string | null;
+        field: FieldDefinition;
+      }[]
     >();
   if (error) throw new Error(error.message);
   return (data ?? []).map((r) => ({
@@ -64,6 +77,7 @@ export async function getWorkstreamTemplate(
     required_level: r.required_level as RequiredLevel,
     display_order: r.display_order,
     isCustom: r.field.product_id === productId,
+    repoUrl: r.repo_url,
   }));
 }
 

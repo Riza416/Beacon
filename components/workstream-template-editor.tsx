@@ -26,6 +26,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { RepoActions } from "@/components/repo-actions";
 import type { FieldDefinition, FieldType, RequiredLevel } from "@/lib/types";
 import type { TemplateRow } from "@/lib/workstream-template";
 import {
@@ -34,6 +35,7 @@ import {
   moveTemplateField,
   removeTemplateField,
   setBuiltinFieldEnabled,
+  setRepoUrl,
   setTemplateFieldLevel,
 } from "@/app/(app)/admin/products/template-actions";
 
@@ -46,6 +48,7 @@ const FIELD_TYPES: { value: FieldType; label: string }[] = [
   { value: "select", label: "Select" },
   { value: "multi_select", label: "Multi-select" },
   { value: "checkbox", label: "Checkbox" },
+  { value: "repo", label: "Repo link" },
 ];
 
 const TYPE_LABELS: Record<FieldType, string> = Object.fromEntries(
@@ -137,6 +140,10 @@ export function WorkstreamTemplateEditor({
     );
   }
 
+  function onSaveRepoUrl(fieldId: string, url: string) {
+    runAction(() => setRepoUrl(productId, fieldId, url), "Repo link saved");
+  }
+
   function onAddFromCatalog() {
     if (!selectedCatalogId) {
       toast.error("Pick a field to add");
@@ -216,10 +223,8 @@ export function WorkstreamTemplateEditor({
             const isFirst = idx === 0;
             const isLast = idx === template.length - 1;
             return (
-              <li
-                key={row.field.id}
-                className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
-              >
+              <li key={row.field.id} className="flex flex-col gap-3 p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0 space-y-1">
                   <div className="flex items-center gap-2">
                     <span className="font-medium">{row.field.label}</span>
@@ -283,6 +288,14 @@ export function WorkstreamTemplateEditor({
                     Remove
                   </Button>
                 </div>
+                </div>
+                {row.field.field_types.includes("repo") && (
+                  <RepoUrlField
+                    initial={row.repoUrl}
+                    isPending={isPending}
+                    onSave={(url) => onSaveRepoUrl(row.field.id, url)}
+                  />
+                )}
               </li>
             );
           })}
@@ -386,6 +399,48 @@ function BuiltinRow({
         <span className="text-xs text-muted-foreground">{note}</span>
       )}
     </li>
+  );
+}
+
+function RepoUrlField({
+  initial,
+  isPending,
+  onSave,
+}: {
+  initial: string | null;
+  isPending: boolean;
+  onSave: (url: string) => void;
+}) {
+  const [value, setValue] = useState(initial ?? "");
+  const dirty = value.trim() !== (initial ?? "").trim();
+  return (
+    <div className="rounded-md border bg-muted/30 p-3">
+      <Label htmlFor="repo-url" className="text-xs font-medium">
+        Repo link
+      </Label>
+      <p className="mb-2 text-xs text-muted-foreground">
+        Authors see this repository with buttons to request access and branch
+        off. GitHub and GitLab links are auto-detected.
+      </p>
+      <div className="flex items-center gap-2">
+        <Input
+          id="repo-url"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="https://github.com/org/repo"
+          disabled={isPending}
+        />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={isPending || !dirty}
+          onClick={() => onSave(value)}
+        >
+          Save
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -670,7 +725,11 @@ function PreviewTemplateField({ row }: { row: TemplateRow }) {
                 {TYPE_LABELS[t]}
               </p>
             )}
-            <PreviewInput type={t} options={f.options ?? []} />
+            <PreviewInput
+              type={t}
+              options={f.options ?? []}
+              repoUrl={row.repoUrl}
+            />
           </div>
         ))}
       </div>
@@ -684,9 +743,11 @@ function PreviewTemplateField({ row }: { row: TemplateRow }) {
 function PreviewInput({
   type,
   options,
+  repoUrl,
 }: {
   type: FieldType;
   options: string[];
+  repoUrl?: string | null;
 }) {
   switch (type) {
     case "short_text":
@@ -736,6 +797,14 @@ function PreviewInput({
         <div className="rounded-md border border-dashed p-4 text-center text-xs text-muted-foreground">
           File upload
         </div>
+      );
+    case "repo":
+      return repoUrl ? (
+        <RepoActions url={repoUrl} preview />
+      ) : (
+        <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
+          No repo link set yet — add one on this field above.
+        </p>
       );
     default:
       return null;

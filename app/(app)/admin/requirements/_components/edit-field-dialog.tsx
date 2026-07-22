@@ -35,6 +35,7 @@ const FIELD_TYPES: { value: FieldType; label: string }[] = [
   { value: "select", label: "Select" },
   { value: "multi_select", label: "Multi-select" },
   { value: "checkbox", label: "Checkbox" },
+  { value: "repo", label: "Repo link" },
 ];
 
 const TYPES_WITH_OPTIONS: FieldType[] = ["select", "multi_select"];
