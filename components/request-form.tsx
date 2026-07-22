@@ -453,6 +453,35 @@ export function RequestForm({
   return (
     <div className="space-y-6">
       <div className="space-y-2">
+        <Label htmlFor="product">Workstream</Label>
+        <Select
+          value={productId ?? "__none__"}
+          onValueChange={(v) => setProductId(v === "__none__" ? null : v)}
+        >
+          <SelectTrigger id="product">
+            <SelectValue placeholder="Pick a workstream" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__none__">No workstream</SelectItem>
+            {products.map((p) => (
+              <SelectItem key={p.id} value={p.id}>
+                {p.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">
+          Choose the workstream first — it determines the rest of this form.
+        </p>
+        {products.length === 0 && (
+          <p className="text-xs text-muted-foreground">
+            No workstreams configured yet — ask an admin to add some under{" "}
+            <code>/admin/products</code>.
+          </p>
+        )}
+      </div>
+
+      <div className="space-y-2">
         <Label htmlFor="title">Title</Label>
         <Input
           id="title"
@@ -477,32 +506,6 @@ export function RequestForm({
         <p className="text-xs text-muted-foreground">
           Required to submit. Save draft works without it.
         </p>
-      </div>
-
-      <div className="space-y-2">
-        <Label htmlFor="product">Workstream</Label>
-        <Select
-          value={productId ?? "__none__"}
-          onValueChange={(v) => setProductId(v === "__none__" ? null : v)}
-        >
-          <SelectTrigger id="product">
-            <SelectValue placeholder="Pick a workstream" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__none__">No workstream</SelectItem>
-            {products.map((p) => (
-              <SelectItem key={p.id} value={p.id}>
-                {p.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {products.length === 0 && (
-          <p className="text-xs text-muted-foreground">
-            No workstreams configured yet — ask an admin to add some under{" "}
-            <code>/admin/products</code>.
-          </p>
-        )}
       </div>
 
       {showDeadline && (
