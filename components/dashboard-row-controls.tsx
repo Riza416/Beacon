@@ -2,8 +2,8 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { toast } from "sonner";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -29,18 +29,18 @@ interface DashboardRowControlsProps {
   /** Show the status select. Global admins only. Defaults to true. */
   canEditStatus?: boolean;
   /**
-   * Show the requester-priority input. Global admins and the requesting
+   * Show the requester-priority stepper. Global admins and the requesting
    * team's admin. Defaults to true.
    */
   canEditRequester?: boolean;
   /**
-   * Show the workstream-priority input. Global admins and an admin of a team
+   * Show the workstream-priority stepper. Global admins and an admin of a team
    * that owns the workstream. Defaults to false.
    */
   canEditWorkstream?: boolean;
-  /** Number of requests in the requester group — caps the requester input. */
+  /** Number of requests in the requester group — caps the requester stepper. */
   requesterMax?: number;
-  /** Number of requests in the workstream — caps the workstream input. */
+  /** Number of requests in the workstream — caps the workstream stepper. */
   workstreamMax?: number;
 }
 
@@ -78,108 +78,105 @@ export function DashboardRowControls({
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-end gap-3">
       {canEditRequester && (
-        <PriorityField
-          prefix="T"
+        <PriorityStepper
+          label="Team rank"
           current={currentPriority}
           max={requesterMax}
-          title={`Requester priority (1–${requesterMax})`}
-          successLabel="Requester priority"
+          successLabel="Team priority"
           commit={(n) => setTeamPriority(requestId, n)}
         />
       )}
       {canEditWorkstream && (
-        <PriorityField
-          prefix="W"
+        <PriorityStepper
+          label="Workstream rank"
           current={currentWorkstreamPriority}
           max={workstreamMax}
-          title={`Workstream priority (1–${workstreamMax})`}
           successLabel="Workstream priority"
           commit={(n) => setWorkstreamPriority(requestId, n)}
         />
       )}
       {canEditStatus && (
-        <Select
-          value={currentStatusId ?? undefined}
-          onValueChange={onStatusChange}
-          disabled={pending}
-        >
-          <SelectTrigger className="h-8 w-[140px] text-xs">
-            <SelectValue placeholder="Set status" />
-          </SelectTrigger>
-          <SelectContent>
-            {statuses.map((s) => (
-              <SelectItem key={s.id} value={s.id} className="text-xs">
-                <span className="flex items-center gap-2">
-                  <span
-                    className="h-2 w-2 rounded-full"
-                    style={{ backgroundColor: s.color }}
-                  />
-                  {s.label}
-                </span>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex flex-col gap-1">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Status
+          </span>
+          <Select
+            value={currentStatusId ?? undefined}
+            onValueChange={onStatusChange}
+            disabled={pending}
+          >
+            <SelectTrigger className="h-8 w-[150px] text-xs">
+              <SelectValue placeholder="Set status" />
+            </SelectTrigger>
+            <SelectContent>
+              {statuses.map((s) => (
+                <SelectItem key={s.id} value={s.id} className="text-xs">
+                  <span className="flex items-center gap-2">
+                    <span
+                      className="h-2 w-2 rounded-full"
+                      style={{ backgroundColor: s.color }}
+                    />
+                    {s.label}
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       )}
     </div>
   );
 }
 
 /**
- * A single compact numeric priority input. Keeps a local draft synced from the
- * `current` prop (so a server-side reorder pushes the fresh value back in), and
- * commits on Enter / blur via the supplied server action.
+ * A labeled priority control: shows the current rank ("#3 of 7"), lets you nudge
+ * it up/down with arrows (up = higher priority / toward #1), or type a rank
+ * directly. Commits via the supplied server action; clamps to the group size so
+ * you can't rank higher than the number of requests.
  */
-function PriorityField({
-  prefix,
+function PriorityStepper({
+  label,
   current,
   max,
-  title,
   successLabel,
   commit,
 }: {
-  /** Short caption to distinguish the two numbers, e.g. "T" or "W". */
-  prefix: string;
-  /** Stored 0-based rank. Displayed 1-based (matches the # chip). */
+  /** Human label, e.g. "Team rank" / "Workstream rank". */
+  label: string;
+  /** Stored 0-based rank. Displayed 1-based. */
   current: number;
-  /** Number of requests in the group; the input can't exceed this. */
+  /** Number of requests in the group; rank can't exceed this. */
   max: number;
-  title: string;
   successLabel: string;
   /** Receives the 0-based target index. */
   commit: (value: number) => Promise<unknown>;
 }) {
   const router = useRouter();
   const [pending, startTransition] = React.useTransition();
-  // Display 1-based so it lines up with the position chip and "max = count".
   const [draft, setDraft] = React.useState<string>(String(current + 1));
 
   React.useEffect(() => {
     setDraft(String(current + 1));
   }, [current]);
 
-  function commitDraft(rawValue: string) {
-    const parsed = Number.parseInt(rawValue, 10);
-    if (Number.isNaN(parsed)) {
+  const cap = Math.max(max, 1);
+  const atTop = current <= 0;
+  const atBottom = current >= cap - 1;
+  const title = `${successLabel} — #${current + 1} of ${cap}. Lower number = higher priority.`;
+
+  // Move to a 0-based target index (clamped), then persist.
+  function moveTo(targetIndex: number) {
+    const clamped = Math.max(0, Math.min(targetIndex, cap - 1));
+    if (clamped === current) {
       setDraft(String(current + 1));
       return;
     }
-    // Clamp to the valid 1..max window, then convert to a 0-based index.
-    const clamped = Math.min(Math.max(parsed, 1), Math.max(max, 1));
-    const targetIndex = clamped - 1;
-    if (clamped !== parsed) {
-      setDraft(String(clamped));
-    }
-    if (targetIndex === current) {
-      setDraft(String(current + 1));
-      return; // no-op
-    }
     startTransition(async () => {
       try {
-        await commit(targetIndex);
-        toast.success(`${successLabel} set to ${clamped}`);
+        await commit(clamped);
+        toast.success(`${successLabel} set to #${clamped + 1}`);
         router.refresh();
       } catch (err) {
         setDraft(String(current + 1));
@@ -190,35 +187,67 @@ function PriorityField({
     });
   }
 
+  function commitDraft(raw: string) {
+    const parsed = Number.parseInt(raw, 10);
+    if (Number.isNaN(parsed)) {
+      setDraft(String(current + 1));
+      return;
+    }
+    moveTo(parsed - 1); // display is 1-based → 0-based index
+  }
+
   return (
-    <div className="flex items-center gap-1" title={title}>
-      <span
-        aria-hidden
-        className="text-[10px] font-semibold uppercase leading-none text-muted-foreground"
-      >
-        {prefix}:
+    <div className="flex flex-col gap-1" title={title}>
+      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
       </span>
-      <Input
-        type="number"
-        min={1}
-        max={max}
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => commitDraft(draft)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            (e.currentTarget as HTMLInputElement).blur();
-          } else if (e.key === "Escape") {
-            setDraft(String(current + 1));
-            (e.currentTarget as HTMLInputElement).blur();
-          }
-        }}
-        disabled={pending}
-        aria-label={title}
-        title={title}
-        className="h-7 w-14 text-center text-xs tabular-nums"
-      />
+      <div className="flex items-center gap-1.5">
+        <div className="inline-flex h-8 items-stretch overflow-hidden rounded-md border bg-background">
+          <input
+            type="number"
+            min={1}
+            max={cap}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={() => commitDraft(draft)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                (e.currentTarget as HTMLInputElement).blur();
+              } else if (e.key === "Escape") {
+                setDraft(String(current + 1));
+                (e.currentTarget as HTMLInputElement).blur();
+              }
+            }}
+            disabled={pending}
+            aria-label={`${successLabel} (1–${cap})`}
+            className="w-10 bg-transparent px-1 text-center text-xs font-medium tabular-nums outline-none [appearance:textfield] disabled:opacity-50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+          />
+          <div className="flex flex-col border-l">
+            <button
+              type="button"
+              aria-label="Move up (higher priority)"
+              title="Move up (higher priority)"
+              disabled={pending || atTop}
+              onClick={() => moveTo(current - 1)}
+              className="flex flex-1 items-center justify-center px-1 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-30"
+            >
+              <ChevronUp className="h-3 w-3" />
+            </button>
+            <button
+              type="button"
+              aria-label="Move down (lower priority)"
+              title="Move down (lower priority)"
+              disabled={pending || atBottom}
+              onClick={() => moveTo(current + 1)}
+              className="flex flex-1 items-center justify-center border-t px-1 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-30"
+            >
+              <ChevronDown className="h-3 w-3" />
+            </button>
+          </div>
+        </div>
+        <span className="text-[11px] text-muted-foreground">of {cap}</span>
+      </div>
     </div>
   );
 }
