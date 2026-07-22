@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowDown, ArrowUp, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Eye, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -132,14 +132,17 @@ export function WorkstreamTemplateEditor({
 
   return (
     <div className="space-y-6">
-      <div className="space-y-1">
-        <h2 className="text-lg font-semibold">
-          Request template — {productName}
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          These fields, and their requirement levels, are what authors fill in
-          when they pick this workstream.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div className="space-y-1">
+          <h2 className="text-lg font-semibold">
+            Request template — {productName}
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            These fields, and their requirement levels, are what authors fill in
+            when they pick this workstream.
+          </p>
+        </div>
+        <TemplatePreviewDialog productName={productName} template={template} />
       </div>
 
       {template.length === 0 ? (
@@ -425,4 +428,172 @@ function CreateCustomFieldDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Draft preview — renders the request form exactly as an author would see it
+// for the CURRENT template (built-in Title/Summary + each template field with
+// its label, requirement marker, and input controls). Read-only: every control
+// is disabled, so this is a faithful mock, not a working form.
+// ---------------------------------------------------------------------------
+
+function RequiredMark({ level }: { level: RequiredLevel }) {
+  if (level === "hard") return <span className="ml-1 text-destructive">*</span>;
+  if (level === "soft")
+    return <span className="ml-1 text-muted-foreground">·</span>;
+  return null;
+}
+
+function TemplatePreviewDialog({
+  productName,
+  template,
+}: {
+  productName: string;
+  template: TemplateRow[];
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button type="button" variant="outline" className="flex-shrink-0">
+          <Eye className="mr-1 h-4 w-4" />
+          Show draft
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Request form preview</DialogTitle>
+          <DialogDescription>
+            How the {productName} request form looks to authors right now.
+            Read-only — a red asterisk means required to submit, a dot means
+            recommended.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-5">
+          <div className="space-y-2">
+            <Label className="flex items-center">Title</Label>
+            <Input disabled placeholder="Untitled draft" />
+          </div>
+          <div className="space-y-2">
+            <Label className="flex items-center">
+              Summary
+              <span className="ml-1 text-destructive">*</span>
+            </Label>
+            <Textarea
+              disabled
+              rows={3}
+              placeholder="A short description of what you're asking for."
+            />
+          </div>
+
+          {template.length === 0 ? (
+            <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+              No custom fields yet — authors would only see the built-in fields
+              above.
+            </p>
+          ) : (
+            template.map((row) => (
+              <PreviewTemplateField key={row.field.id} row={row} />
+            ))
+          )}
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function PreviewTemplateField({ row }: { row: TemplateRow }) {
+  const f = row.field;
+  const types =
+    f.field_types && f.field_types.length > 0 ? f.field_types : [f.field_type];
+  const showSubLabels = types.length > 1;
+  return (
+    <div className="space-y-2">
+      <Label className="flex items-center">
+        <span>{f.label}</span>
+        <RequiredMark level={row.required_level} />
+      </Label>
+      <div className="space-y-3">
+        {types.map((t) => (
+          <div key={t} className="space-y-1.5">
+            {showSubLabels && (
+              <p className="text-xs font-normal text-muted-foreground">
+                {TYPE_LABELS[t]}
+              </p>
+            )}
+            <PreviewInput type={t} options={f.options ?? []} />
+          </div>
+        ))}
+      </div>
+      {f.help_text && (
+        <p className="text-xs text-muted-foreground">{f.help_text}</p>
+      )}
+    </div>
+  );
+}
+
+function PreviewInput({
+  type,
+  options,
+}: {
+  type: FieldType;
+  options: string[];
+}) {
+  switch (type) {
+    case "short_text":
+      return <Input disabled />;
+    case "long_text":
+      return <Textarea disabled rows={4} />;
+    case "url":
+      return <Input disabled type="url" placeholder="https://" />;
+    case "select":
+      return (
+        <Select disabled>
+          <SelectTrigger>
+            <SelectValue placeholder="Select an option" />
+          </SelectTrigger>
+        </Select>
+      );
+    case "multi_select":
+      return options.length === 0 ? (
+        <p className="text-xs text-muted-foreground">No options configured.</p>
+      ) : (
+        <div className="space-y-2">
+          {options.map((opt) => (
+            <div key={opt} className="flex items-center gap-2">
+              <Checkbox disabled />
+              <Label className="text-sm font-normal text-muted-foreground">
+                {opt}
+              </Label>
+            </div>
+          ))}
+        </div>
+      );
+    case "checkbox":
+      return (
+        <div className="flex items-center gap-2">
+          <Checkbox disabled />
+          <Label className="text-sm font-normal text-muted-foreground">Yes</Label>
+        </div>
+      );
+    case "image":
+      return (
+        <div className="rounded-md border border-dashed p-4 text-center text-xs text-muted-foreground">
+          Paste or upload a screenshot
+        </div>
+      );
+    case "file":
+      return (
+        <div className="rounded-md border border-dashed p-4 text-center text-xs text-muted-foreground">
+          File upload
+        </div>
+      );
+    default:
+      return null;
+  }
 }
