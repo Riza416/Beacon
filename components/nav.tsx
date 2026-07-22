@@ -3,8 +3,11 @@ import { getCurrentProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { cookies } from "next/headers";
 import { BeaconLogo } from "@/components/logo";
 import { NotificationBell } from "@/components/notification-bell";
+import { DemoModeToggle } from "@/components/demo-mode-toggle";
+import { DEMO_COOKIE } from "@/lib/demo";
 
 async function countUnreadTags(profileId: string, teamId: string | null) {
   const supabase = await createClient();
@@ -63,6 +66,9 @@ export default async function Nav() {
       profile.can_edit_products ||
       profile.can_delete_products);
   const unread = await countUnreadTags(profile.id, profile.team_id);
+  const demoOn = isAdmin
+    ? (await cookies()).get(DEMO_COOKIE)?.value === "1"
+    : false;
 
   return (
     <header className="border-b bg-background">
@@ -110,6 +116,7 @@ export default async function Nav() {
           </nav>
         </div>
         <div className="flex items-center gap-3">
+          {isAdmin && <DemoModeToggle enabled={demoOn} />}
           <span className="hidden text-sm text-muted-foreground sm:inline">
             {profile.email ?? profile.full_name}
           </span>

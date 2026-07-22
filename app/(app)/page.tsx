@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 import {
   Calendar,
   ExternalLink,
@@ -8,6 +9,8 @@ import {
   Plus,
 } from "lucide-react";
 import { requireProfile } from "@/lib/auth";
+import { DemoDashboard } from "@/components/demo-dashboard";
+import { DEMO_COOKIE } from "@/lib/demo";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -63,6 +66,15 @@ export default async function DashboardPage({
   const profile = await requireProfile();
   const search = await searchParams;
   const view = search.view === VIEW_WORKSTREAMS ? VIEW_WORKSTREAMS : VIEW_LIST;
+
+  // Demo mode is a global-admin-only cookie: swap the live dashboard for a
+  // fictional preview. Honored only for admins, so the flag can never expose
+  // demo content to a real user.
+  if (profile.role === "admin") {
+    const demoOn = (await cookies()).get(DEMO_COOKIE)?.value === "1";
+    if (demoOn) return <DemoDashboard />;
+  }
+
   return (
     <Dashboard
       profile={profile}
