@@ -28,6 +28,10 @@ create table public.products (
   id uuid primary key default gen_random_uuid(),
   name text not null unique,
   description text,
+  -- Per-workstream visibility of the built-in Deadline / Dependent-teams
+  -- fields on the request form. Title/Summary/Workstream are always shown.
+  show_deadline boolean not null default true,
+  show_dependent_teams boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

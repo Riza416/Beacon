@@ -85,6 +85,8 @@ export type Database = {
           description: string | null;
           created_at: string;
           updated_at: string;
+          show_deadline: boolean;
+          show_dependent_teams: boolean;
         };
         Insert: {
           id?: string;
@@ -92,6 +94,8 @@ export type Database = {
           description?: string | null;
           created_at?: string;
           updated_at?: string;
+          show_deadline?: boolean;
+          show_dependent_teams?: boolean;
         };
         Update: {
           id?: string;
@@ -99,6 +103,8 @@ export type Database = {
           description?: string | null;
           created_at?: string;
           updated_at?: string;
+          show_deadline?: boolean;
+          show_dependent_teams?: boolean;
         };
         Relationships: [];
       };

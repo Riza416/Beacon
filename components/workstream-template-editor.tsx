@@ -33,6 +33,7 @@ import {
   createCustomField,
   moveTemplateField,
   removeTemplateField,
+  setBuiltinFieldEnabled,
   setTemplateFieldLevel,
 } from "@/app/(app)/admin/products/template-actions";
 
@@ -63,11 +64,17 @@ function humanizeTypes(types: FieldType[]): string {
   return types.map((t) => TYPE_LABELS[t] ?? t).join(", ");
 }
 
+export interface BuiltinVisibility {
+  deadline: boolean;
+  dependentTeams: boolean;
+}
+
 interface WorkstreamTemplateEditorProps {
   productId: string;
   productName: string;
   template: TemplateRow[]; // already ordered by display_order
   addableCatalog: FieldDefinition[]; // shared catalog fields NOT yet in this template
+  builtins: BuiltinVisibility;
 }
 
 export function WorkstreamTemplateEditor({
@@ -75,6 +82,7 @@ export function WorkstreamTemplateEditor({
   productName,
   template,
   addableCatalog,
+  builtins,
 }: WorkstreamTemplateEditorProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -119,6 +127,16 @@ export function WorkstreamTemplateEditor({
     );
   }
 
+  function onToggleBuiltin(
+    field: "deadline" | "dependent_teams",
+    enabled: boolean
+  ) {
+    runAction(
+      () => setBuiltinFieldEnabled(productId, field, enabled),
+      enabled ? "Field added to template" : "Field removed"
+    );
+  }
+
   function onAddFromCatalog() {
     if (!selectedCatalogId) {
       toast.error("Pick a field to add");
@@ -142,7 +160,46 @@ export function WorkstreamTemplateEditor({
             when they pick this workstream.
           </p>
         </div>
-        <TemplatePreviewDialog productName={productName} template={template} />
+        <TemplatePreviewDialog
+          productName={productName}
+          template={template}
+          builtins={builtins}
+        />
+      </div>
+
+      <div className="space-y-2">
+        <div>
+          <h3 className="text-sm font-semibold">Built-in fields</h3>
+          <p className="text-xs text-muted-foreground">
+            Always part of every request. Title and Summary can&apos;t be
+            removed; Deadline and Dependent teams are optional per workstream.
+          </p>
+        </div>
+        <ul className="divide-y rounded-md border">
+          <BuiltinRow label="Title" note="Always shown" />
+          <BuiltinRow label="Summary" note="Always shown · required" />
+          <BuiltinRow
+            label="Deadline"
+            enabled={builtins.deadline}
+            isPending={isPending}
+            onToggle={(on) => onToggleBuiltin("deadline", on)}
+          />
+          <BuiltinRow
+            label="Dependent teams"
+            enabled={builtins.dependentTeams}
+            isPending={isPending}
+            onToggle={(on) => onToggleBuiltin("dependent_teams", on)}
+          />
+        </ul>
+      </div>
+
+      <div>
+        <h3 className="text-sm font-semibold">
+          Custom &amp; catalog fields
+        </h3>
+        <p className="mb-2 text-xs text-muted-foreground">
+          The workstream-specific questions authors answer, in order.
+        </p>
       </div>
 
       {template.length === 0 ? (
@@ -276,6 +333,59 @@ export function WorkstreamTemplateEditor({
         />
       </div>
     </div>
+  );
+}
+
+function BuiltinRow({
+  label,
+  note,
+  enabled,
+  isPending,
+  onToggle,
+}: {
+  label: string;
+  /** Shown for non-removable rows (Title / Summary). */
+  note?: string;
+  /** Present only for toggleable rows. */
+  enabled?: boolean;
+  isPending?: boolean;
+  onToggle?: (enabled: boolean) => void;
+}) {
+  const toggleable = onToggle !== undefined;
+  return (
+    <li className="flex items-center justify-between gap-3 p-4">
+      <div className="flex items-center gap-2">
+        <span className="font-medium">{label}</span>
+        {toggleable && !enabled && <Badge variant="outline">Removed</Badge>}
+      </div>
+      {toggleable ? (
+        enabled ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="text-destructive"
+            disabled={isPending}
+            onClick={() => onToggle(false)}
+          >
+            <Trash2 className="mr-1 h-4 w-4" />
+            Remove
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={isPending}
+            onClick={() => onToggle(true)}
+          >
+            Add back
+          </Button>
+        )
+      ) : (
+        <span className="text-xs text-muted-foreground">{note}</span>
+      )}
+    </li>
   );
 }
 
@@ -447,9 +557,11 @@ function RequiredMark({ level }: { level: RequiredLevel }) {
 function TemplatePreviewDialog({
   productName,
   template,
+  builtins,
 }: {
   productName: string;
   template: TemplateRow[];
+  builtins: BuiltinVisibility;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -485,11 +597,43 @@ function TemplatePreviewDialog({
               placeholder="A short description of what you're asking for."
             />
           </div>
+          <div className="space-y-2">
+            <Label className="flex items-center">
+              Workstream
+              <span className="ml-1 text-destructive">*</span>
+            </Label>
+            <Select disabled>
+              <SelectTrigger>
+                <SelectValue placeholder={productName} />
+              </SelectTrigger>
+            </Select>
+          </div>
+          {builtins.deadline && (
+            <div className="space-y-2">
+              <Label>Deadline</Label>
+              <Input type="date" disabled className="w-fit" />
+              <p className="text-xs text-muted-foreground">
+                Optional. When does this need to be done by?
+              </p>
+            </div>
+          )}
+          {builtins.dependentTeams && (
+            <div className="space-y-2">
+              <Label>Dependent teams</Label>
+              <Select disabled>
+                <SelectTrigger>
+                  <SelectValue placeholder="Add a team…" />
+                </SelectTrigger>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Optional. Tag other teams this request depends on.
+              </p>
+            </div>
+          )}
 
           {template.length === 0 ? (
             <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
-              No custom fields yet — authors would only see the built-in fields
-              above.
+              No custom fields yet — authors would only see the fields above.
             </p>
           ) : (
             template.map((row) => (

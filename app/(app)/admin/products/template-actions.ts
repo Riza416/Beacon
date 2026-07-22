@@ -87,6 +87,28 @@ function parseLevel(raw: string): RequiredLevel {
   return level;
 }
 
+/**
+ * Toggle a built-in request field (Deadline / Dependent teams) on or off for a
+ * workstream. Title / Summary / Workstream are always shown and not toggleable.
+ */
+export async function setBuiltinFieldEnabled(
+  productId: string,
+  field: "deadline" | "dependent_teams",
+  enabled: boolean
+): Promise<void> {
+  const { admin } = await authorizeTemplate(productId);
+  const update =
+    field === "deadline"
+      ? { show_deadline: enabled }
+      : { show_dependent_teams: enabled };
+  const { error } = await admin
+    .from("products")
+    .update(update)
+    .eq("id", productId);
+  if (error) throw new Error(error.message);
+  revalidateTemplate(productId);
+}
+
 /** Add an existing shared-catalog field to a workstream's template. */
 export async function addCatalogFieldToTemplate(
   productId: string,

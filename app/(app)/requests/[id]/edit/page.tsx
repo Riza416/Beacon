@@ -57,9 +57,16 @@ export default async function EditRequestPage({ params }: EditPageProps) {
 
   const { data: products } = await supabase
     .from("products")
-    .select("id, name")
+    .select("id, name, show_deadline, show_dependent_teams")
     .order("name")
-    .returns<{ id: string; name: string }[]>();
+    .returns<
+      {
+        id: string;
+        name: string;
+        show_deadline: boolean;
+        show_dependent_teams: boolean;
+      }[]
+    >();
 
   // Teams + this request's existing team tags. Authors flag dependent teams
   // while drafting; the picker below the deadline field reads from these.

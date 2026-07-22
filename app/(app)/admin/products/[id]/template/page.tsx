@@ -25,9 +25,14 @@ export default async function AdminWorkstreamTemplatePage({
 
   const { data: product } = await supabase
     .from("products")
-    .select("id, name")
+    .select("id, name, show_deadline, show_dependent_teams")
     .eq("id", id)
-    .maybeSingle<{ id: string; name: string }>();
+    .maybeSingle<{
+      id: string;
+      name: string;
+      show_deadline: boolean;
+      show_dependent_teams: boolean;
+    }>();
   if (!product) notFound();
 
   const [template, addableCatalog] = await Promise.all([
@@ -45,6 +50,10 @@ export default async function AdminWorkstreamTemplatePage({
         productName={product.name}
         template={template}
         addableCatalog={addableCatalog}
+        builtins={{
+          deadline: product.show_deadline,
+          dependentTeams: product.show_dependent_teams,
+        }}
       />
     </div>
   );

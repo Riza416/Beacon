@@ -54,8 +54,14 @@ interface RequestFormProps {
   /** Signed URLs (keyed by storage path) for any existing image attachments,
    * so the form can show a preview of what's already saved. */
   signedUrls?: Record<string, string>;
-  /** Admin-configured catalog the author picks one of. */
-  products: { id: string; name: string }[];
+  /** Admin-configured catalog the author picks one of, with each workstream's
+   * built-in-field visibility flags. */
+  products: {
+    id: string;
+    name: string;
+    show_deadline: boolean;
+    show_dependent_teams: boolean;
+  }[];
   /** All teams in the workspace, used by the dependent-teams picker below
    * the deadline field. */
   allTeams: { id: string; name: string }[];
@@ -425,6 +431,15 @@ export function RequestForm({
     setFormValues((prev) => ({ ...prev, [key]: next }));
   }
 
+  // Built-in Deadline / Dependent-teams fields follow the SELECTED workstream's
+  // template flags. Shown only once a workstream is picked (like the custom
+  // fields), and only when that workstream keeps them on.
+  const selectedProduct = productId
+    ? products.find((p) => p.id === productId) ?? null
+    : null;
+  const showDeadline = selectedProduct?.show_deadline ?? false;
+  const showDependentTeams = selectedProduct?.show_dependent_teams ?? false;
+
   function requiredMark(level: FieldDefinition["required_level"]) {
     if (level === "hard")
       return <span className="ml-1 text-destructive">*</span>;
@@ -488,6 +503,7 @@ export function RequestForm({
         )}
       </div>
 
+      {showDeadline && (
       <div className="space-y-2">
         <Label htmlFor="deadline">Deadline</Label>
         <div className="flex items-center gap-2">
@@ -512,7 +528,9 @@ export function RequestForm({
           Optional. When does this need to be done by?
         </p>
       </div>
+      )}
 
+      {showDependentTeams && (
       <div className="space-y-2">
         <Label>Dependent teams</Label>
         <p className="text-xs text-muted-foreground">
@@ -586,6 +604,7 @@ export function RequestForm({
           </p>
         )}
       </div>
+      )}
 
       {templateLoading && (
         <p className="text-sm text-muted-foreground">
