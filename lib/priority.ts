@@ -6,21 +6,55 @@ type DB = SupabaseClient<Database>;
 // Priority is scoped to a (team_id, product_id) group. Each group keeps its
 // own dense 0..N-1 sequence with no duplicates, so "#1 in Product A" and
 // "#1 in Product B" can coexist for the same team. The null-team / null-product
-// bucket is a valid group too. All mutation paths funnel through this module so
-// the invariant is defined in exactly one place.
+// bucket is a valid group too.
+//
+// TERMINAL requests (status configured as is_terminal, e.g. "Done") are
+// EXCLUDED from the sequence: completed work drops out of the ranking, so the
+// count and ranks reflect only the active (non-terminal) requests you actually
+// see on the dashboard. A request re-slots when it leaves/re-enters the active
+// set (see updateRequestStatus). All mutation paths funnel through this module
+// so the invariant lives in exactly one place.
 
-function groupQuery(db: DB, teamId: string | null, productId: string | null) {
+type GroupRow = { id: string; team_priority: number; updated_at: string };
+type WsRow = { id: string; workstream_priority: number; updated_at: string };
+
+/** Ids of statuses configured as terminal — excluded from every ranking. */
+async function terminalStatusIds(db: DB): Promise<Set<string>> {
+  const { data, error } = await db
+    .from("statuses")
+    .select("id")
+    .eq("is_terminal", true)
+    .returns<{ id: string }[]>();
+  if (error) throw new Error(error.message);
+  return new Set((data ?? []).map((s) => s.id));
+}
+
+/** Active (non-terminal) requests in a (team, product) group, ranked order. */
+async function loadGroup(
+  db: DB,
+  teamId: string | null,
+  productId: string | null
+): Promise<GroupRow[]> {
+  const terminal = await terminalStatusIds(db);
   let q = db
     .from("requests")
-    .select("id, team_priority, updated_at")
+    .select("id, team_priority, updated_at, status_id")
     .order("team_priority", { ascending: true })
     .order("updated_at", { ascending: false });
   q = teamId ? q.eq("team_id", teamId) : q.is("team_id", null);
   q = productId ? q.eq("product_id", productId) : q.is("product_id", null);
-  return q;
+  const { data, error } = await q.returns<
+    (GroupRow & { status_id: string | null })[]
+  >();
+  if (error) throw new Error(error.message);
+  return (data ?? [])
+    .filter((r) => !r.status_id || !terminal.has(r.status_id))
+    .map(({ id, team_priority, updated_at }) => ({
+      id,
+      team_priority,
+      updated_at,
+    }));
 }
-
-type GroupRow = { id: string; team_priority: number; updated_at: string };
 
 /** The next free priority slot (max + 1) in a group — used when inserting. */
 export async function nextSlot(
@@ -28,9 +62,7 @@ export async function nextSlot(
   teamId: string | null,
   productId: string | null
 ): Promise<number> {
-  const { data, error } = await groupQuery(db, teamId, productId);
-  if (error) throw new Error(error.message);
-  const rows = (data ?? []) as GroupRow[];
+  const rows = await loadGroup(db, teamId, productId);
   return rows.reduce((max, r) => Math.max(max, r.team_priority), -1) + 1;
 }
 
@@ -40,9 +72,7 @@ export async function compact(
   teamId: string | null,
   productId: string | null
 ): Promise<void> {
-  const { data, error } = await groupQuery(db, teamId, productId);
-  if (error) throw new Error(error.message);
-  const rows = (data ?? []) as GroupRow[];
+  const rows = await loadGroup(db, teamId, productId);
   for (let i = 0; i < rows.length; i++) {
     if (rows[i].team_priority === i) continue;
     const { error: updErr } = await db
@@ -64,9 +94,7 @@ export async function resequence(
   requestId: string,
   targetIndex: number
 ): Promise<void> {
-  const { data, error } = await groupQuery(db, teamId, productId);
-  if (error) throw new Error(error.message);
-  const rows = (data ?? []) as GroupRow[];
+  const rows = await loadGroup(db, teamId, productId);
   if (rows.length === 0) return;
 
   const others = rows.filter((r) => r.id !== requestId);
@@ -88,22 +116,31 @@ export async function resequence(
 }
 
 // ---------------------------------------------------------------------------
-// Workstream priority — the OWNING team's dense 0..N-1 rank of every request
-// in a workstream (product_id). Parallel to the team-priority helpers above,
-// but scoped to a single product and writing the workstream_priority column.
-// A null product has no workstream ranking, so these are no-ops for it.
+// Workstream priority — the OWNING team's dense 0..N-1 rank of every ACTIVE
+// request in a workstream (product_id). Parallel to the team-priority helpers,
+// scoped to a single product, writing workstream_priority, and likewise
+// excluding terminal requests. A null product has no workstream ranking.
 // ---------------------------------------------------------------------------
 
-function workstreamGroupQuery(db: DB, productId: string) {
-  return db
+/** Active (non-terminal) requests in a workstream, ranked order. */
+async function loadWorkstream(db: DB, productId: string): Promise<WsRow[]> {
+  const terminal = await terminalStatusIds(db);
+  const { data, error } = await db
     .from("requests")
-    .select("id, workstream_priority, updated_at")
+    .select("id, workstream_priority, updated_at, status_id")
     .eq("product_id", productId)
     .order("workstream_priority", { ascending: true })
-    .order("updated_at", { ascending: false });
+    .order("updated_at", { ascending: false })
+    .returns<(WsRow & { status_id: string | null })[]>();
+  if (error) throw new Error(error.message);
+  return (data ?? [])
+    .filter((r) => !r.status_id || !terminal.has(r.status_id))
+    .map(({ id, workstream_priority, updated_at }) => ({
+      id,
+      workstream_priority,
+      updated_at,
+    }));
 }
-
-type WsRow = { id: string; workstream_priority: number; updated_at: string };
 
 /** Next free workstream slot (max + 1) in a workstream. */
 export async function nextWorkstreamSlot(
@@ -111,9 +148,7 @@ export async function nextWorkstreamSlot(
   productId: string | null
 ): Promise<number> {
   if (!productId) return 0;
-  const { data, error } = await workstreamGroupQuery(db, productId);
-  if (error) throw new Error(error.message);
-  const rows = (data ?? []) as WsRow[];
+  const rows = await loadWorkstream(db, productId);
   return rows.reduce((max, r) => Math.max(max, r.workstream_priority), -1) + 1;
 }
 
@@ -123,9 +158,7 @@ export async function compactWorkstream(
   productId: string | null
 ): Promise<void> {
   if (!productId) return;
-  const { data, error } = await workstreamGroupQuery(db, productId);
-  if (error) throw new Error(error.message);
-  const rows = (data ?? []) as WsRow[];
+  const rows = await loadWorkstream(db, productId);
   for (let i = 0; i < rows.length; i++) {
     if (rows[i].workstream_priority === i) continue;
     const { error: updErr } = await db
@@ -144,9 +177,7 @@ export async function resequenceWorkstream(
   targetIndex: number
 ): Promise<void> {
   if (!productId) return;
-  const { data, error } = await workstreamGroupQuery(db, productId);
-  if (error) throw new Error(error.message);
-  const rows = (data ?? []) as WsRow[];
+  const rows = await loadWorkstream(db, productId);
   if (rows.length === 0) return;
 
   const others = rows.filter((r) => r.id !== requestId);

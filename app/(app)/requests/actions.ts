@@ -540,13 +540,17 @@ export async function updateRequestStatus(
 ): Promise<{ ok: true }> {
   const { supabase, profile } = await adminAction();
 
-  // Read the prior status so we only alert on an ACTUAL change (re-selecting
-  // the same status is a no-op and shouldn't email anyone).
+  // Read the prior status + group so we only act on an ACTUAL change and, if
+  // the request crosses the active/terminal boundary, re-densify its rankings.
   const { data: before } = await supabase
     .from("requests")
-    .select("status_id")
+    .select("status_id, team_id, product_id")
     .eq("id", requestId)
-    .maybeSingle<{ status_id: string | null }>();
+    .maybeSingle<{
+      status_id: string | null;
+      team_id: string | null;
+      product_id: string | null;
+    }>();
 
   const { error } = await supabase
     .from("requests")
@@ -555,15 +559,42 @@ export async function updateRequestStatus(
   if (error) throw new Error(error.message);
 
   if (before?.status_id !== statusId) {
-    const { data: st } = await supabase
+    const { data: sts } = await supabase
       .from("statuses")
-      .select("label")
-      .eq("id", statusId)
-      .maybeSingle<{ label: string }>();
+      .select("id, label, is_terminal")
+      .returns<{ id: string; label: string; is_terminal: boolean }[]>();
+    const byId = new Map((sts ?? []).map((s) => [s.id, s]));
+    const newStatus = byId.get(statusId);
+    const wasTerminal = before?.status_id
+      ? byId.get(before.status_id)?.is_terminal ?? false
+      : false;
+    const nowTerminal = newStatus?.is_terminal ?? false;
+
+    // Terminal (completed) requests are excluded from the ranking. When one
+    // crosses that boundary, close/open its slot so active ranks stay dense.
+    if (wasTerminal !== nowTerminal) {
+      if (!nowTerminal) {
+        // Reactivated — push to the end of both sequences before compacting.
+        await supabase
+          .from("requests")
+          .update({ team_priority: 1_000_000, workstream_priority: 1_000_000 })
+          .eq("id", requestId);
+      }
+      await priority.compact(
+        supabase,
+        before?.team_id ?? null,
+        before?.product_id ?? null
+      );
+      await priority.compactWorkstream(supabase, before?.product_id ?? null);
+    }
+
     await notifyWorkstreamOwners({
       requestId,
       actorId: profile.id,
-      event: { kind: "status_changed", statusLabel: st?.label ?? "Updated" },
+      event: {
+        kind: "status_changed",
+        statusLabel: newStatus?.label ?? "Updated",
+      },
     });
   }
 

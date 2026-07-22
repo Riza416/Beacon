@@ -230,14 +230,14 @@ async function Dashboard({
   );
 
   // Group sizes cap the priority inputs (you can't rank a request higher than
-  // the number of requests in its group). Counted from rawRequests (pre
-  // terminal-hide) so hidden rows still occupy their slot; the server clamps
-  // to the true DB count regardless, so this is a UI guardrail.
+  // the number of requests in its group). Counted from the ACTIVE set
+  // (`requests`, terminal-hidden) to match the ranking, which excludes
+  // completed requests — so "#k of N" reflects only live work.
   const requesterGroupSize = new Map<string, number>();
   const workstreamGroupSize = new Map<string, number>();
   const requesterKey = (teamId: string | null, productId: string | null) =>
     `${teamId ?? "none"}::${productId ?? "none"}`;
-  for (const r of rawRequests ?? []) {
+  for (const r of requests) {
     const rk = requesterKey(r.team_id, r.product_id);
     requesterGroupSize.set(rk, (requesterGroupSize.get(rk) ?? 0) + 1);
     if (r.product_id) {
