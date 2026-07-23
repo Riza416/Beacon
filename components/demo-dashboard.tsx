@@ -109,9 +109,10 @@ export function DemoDashboard() {
       </header>
 
       <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-900 dark:text-amber-200">
-        <strong>Demo mode is on.</strong> Everything below is fictional sample
-        data, visible only to you — it isn&apos;t stored and never appears for
-        real users. Turn demo mode off in the top bar to return to live data.
+        <strong>Demo mode is on.</strong>{" "}
+        Everything below is fictional sample data, visible only to you — it
+        isn&apos;t stored and never appears for real users. Turn demo mode off
+        in the top bar to return to live data.
       </div>
 
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">

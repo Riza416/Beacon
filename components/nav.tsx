@@ -72,55 +72,55 @@ export default async function Nav() {
 
   return (
     <header className="border-b bg-background">
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-        <div className="flex items-center gap-6">
-          <Link href="/" aria-label="Beacon — home">
+      <div className="mx-auto flex w-full max-w-[1600px] items-center justify-between gap-6 px-6 py-3">
+        <div className="flex min-w-0 flex-1 items-center gap-5">
+          <Link href="/" aria-label="Beacon — home" className="shrink-0">
             <BeaconLogo size={20} />
           </Link>
-          <nav className="hidden gap-4 text-sm sm:flex">
-            <Link href="/" className="text-muted-foreground hover:text-foreground">
+          <nav className="hidden min-w-0 items-center gap-4 overflow-x-auto text-sm sm:flex">
+            <Link href="/" className="whitespace-nowrap text-muted-foreground hover:text-foreground">
               Dashboard
             </Link>
-            <Link href="/requests/mine" className="text-muted-foreground hover:text-foreground">
+            <Link href="/requests/mine" className="whitespace-nowrap text-muted-foreground hover:text-foreground">
               My requests
             </Link>
-            <Link href="/requests/new" className="text-muted-foreground hover:text-foreground">
+            <Link href="/requests/new" className="whitespace-nowrap text-muted-foreground hover:text-foreground">
               New request
             </Link>
-            <Link href="/guide" className="text-muted-foreground hover:text-foreground">
+            <Link href="/guide" className="whitespace-nowrap text-muted-foreground hover:text-foreground">
               Guide
             </Link>
             {isTeamAdmin && (
-              <Link href="/team" className="text-muted-foreground hover:text-foreground">
+              <Link href="/team" className="whitespace-nowrap text-muted-foreground hover:text-foreground">
                 My team
               </Link>
             )}
             {!isAdmin && !isTeamAdmin && canManageTeamProducts && (
-              <Link href="/team/products" className="text-muted-foreground hover:text-foreground">
+              <Link href="/team/products" className="whitespace-nowrap text-muted-foreground hover:text-foreground">
                 Workstreams
               </Link>
             )}
             {isAdmin && (
               <>
-                <Link href="/admin/teams" className="text-muted-foreground hover:text-foreground">
+                <Link href="/admin/teams" className="whitespace-nowrap text-muted-foreground hover:text-foreground">
                   Teams
                 </Link>
-                <Link href="/admin/products" className="text-muted-foreground hover:text-foreground">
+                <Link href="/admin/products" className="whitespace-nowrap text-muted-foreground hover:text-foreground">
                   Workstreams
                 </Link>
-                <Link href="/admin/requirements" className="text-muted-foreground hover:text-foreground">
+                <Link href="/admin/requirements" className="whitespace-nowrap text-muted-foreground hover:text-foreground">
                   Fields
                 </Link>
-                <Link href="/admin/statuses" className="text-muted-foreground hover:text-foreground">
+                <Link href="/admin/statuses" className="whitespace-nowrap text-muted-foreground hover:text-foreground">
                   Statuses
                 </Link>
               </>
             )}
           </nav>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex shrink-0 items-center gap-3">
           {isAdmin && <DemoModeToggle enabled={demoOn} />}
-          <span className="hidden text-sm text-muted-foreground sm:inline">
+          <span className="hidden max-w-[180px] truncate text-sm text-muted-foreground xl:inline">
             {profile.email ?? profile.full_name}
           </span>
           <Badge variant={isAdmin ? "default" : "secondary"}>{profile.role}</Badge>

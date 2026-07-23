@@ -31,7 +31,7 @@ export function DemoModeToggle({ enabled }: { enabled: boolean }) {
       aria-pressed={enabled}
       title="Preview Beacon with fictional sample data (admins only)"
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-50",
+        "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-50",
         enabled
           ? "border-amber-500/50 bg-amber-500/15 text-amber-700 dark:text-amber-300"
           : "text-muted-foreground hover:text-foreground"
