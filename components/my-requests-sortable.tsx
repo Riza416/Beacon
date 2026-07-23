@@ -44,7 +44,7 @@ export interface MyRequestRow {
   submitted_at: string | null;
   updated_at: string;
   notion_url: string | null;
-  status: { id: string; label: string; color: string } | null;
+  status: { id: string; label: string; color: string; is_terminal: boolean } | null;
 }
 
 interface MyRequestsSortableProps {
