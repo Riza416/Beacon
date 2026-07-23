@@ -34,9 +34,8 @@ export function TeamsList({ teams }: { teams: TeamListItem[] }) {
     );
   }, [teams, query]);
 
-  // Group teams by company so each company's teams sit together in one row.
-  // Companies alphabetical; the "No company" bucket comes last.
-  const groups = useMemo(() => {
+  // One column per company. Companies alphabetical; "No company" last.
+  const columns = useMemo(() => {
     const map = new Map<string, TeamListItem[]>();
     for (const t of filtered) {
       const key = t.companyName ?? NO_COMPANY;
@@ -56,7 +55,7 @@ export function TeamsList({ teams }: { teams: TeamListItem[] }) {
   }, [filtered]);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <div className="relative max-w-sm">
         <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <input
@@ -74,49 +73,54 @@ export function TeamsList({ teams }: { teams: TeamListItem[] }) {
           No teams match &ldquo;{query}&rdquo;.
         </div>
       ) : (
-        <div className="space-y-8">
-          {groups.map((group) => (
-            <section key={group.key} className="space-y-3">
-              <div className="flex items-center gap-2 px-1">
-                <Building2 className="h-4 w-4 text-muted-foreground" />
-                <h3 className="text-sm font-semibold tracking-tight">
-                  {group.label}
+        <div className="flex gap-4 overflow-x-auto pb-2">
+          {columns.map((col) => (
+            <div
+              key={col.key}
+              className="flex w-72 shrink-0 flex-col rounded-2xl bg-muted/40 p-3"
+            >
+              <div className="flex items-center gap-2 px-2 pb-3 pt-1">
+                <Building2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <h3 className="min-w-0 flex-1 truncate text-sm font-semibold tracking-tight">
+                  {col.label}
                 </h3>
-                <span className="text-xs text-muted-foreground">
-                  {group.teams.length}
+                <span className="shrink-0 rounded-full bg-background px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
+                  {col.teams.length}
                 </span>
               </div>
-              <ul className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-                {group.teams.map((team) => (
-                  <li key={team.id}>
-                    <Link
-                      href={`/admin/teams/${team.id}`}
-                      className="group flex h-full flex-col gap-4 rounded-2xl border border-border/60 bg-card p-6 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-border hover:shadow-md"
-                    >
-                      <div className="flex items-center gap-4">
-                        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold tracking-tight text-primary">
-                          {initials(team.name)}
-                        </span>
-                        <div className="min-w-0 flex-1 truncate text-[15px] font-semibold tracking-tight">
-                          {team.name}
-                        </div>
-                        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/40 transition-all group-hover:translate-x-0.5 group-hover:text-muted-foreground" />
-                      </div>
 
+              <div className="flex flex-col gap-2.5">
+                {col.teams.map((team) => (
+                  <Link
+                    key={team.id}
+                    href={`/admin/teams/${team.id}`}
+                    className="group flex flex-col gap-3 rounded-xl border border-border/60 bg-card p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-border hover:shadow-md"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold tracking-tight text-primary">
+                        {initials(team.name)}
+                      </span>
+                      <div className="min-w-0 flex-1 truncate text-sm font-semibold tracking-tight">
+                        {team.name}
+                      </div>
+                      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/40 transition-all group-hover:translate-x-0.5 group-hover:text-muted-foreground" />
+                    </div>
+
+                    {team.description && (
                       <p className="line-clamp-2 text-sm leading-relaxed text-muted-foreground">
-                        {team.description || "No description."}
+                        {team.description}
                       </p>
+                    )}
 
-                      <div className="mt-auto flex items-center gap-1.5 border-t border-border/60 pt-4 text-xs text-muted-foreground">
-                        <Users className="h-3.5 w-3.5" />
-                        {team.memberCount}{" "}
-                        {team.memberCount === 1 ? "member" : "members"}
-                      </div>
-                    </Link>
-                  </li>
+                    <div className="flex items-center gap-1.5 border-t border-border/60 pt-3 text-xs text-muted-foreground">
+                      <Users className="h-3.5 w-3.5" />
+                      {team.memberCount}{" "}
+                      {team.memberCount === 1 ? "member" : "members"}
+                    </div>
+                  </Link>
                 ))}
-              </ul>
-            </section>
+              </div>
+            </div>
           ))}
         </div>
       )}
