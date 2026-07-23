@@ -64,9 +64,9 @@ export function CompaniesManager({
   }
 
   return (
-    <Card>
+    <Card className="rounded-2xl border-border/60 shadow-sm">
       <CardHeader>
-        <CardTitle className="text-base">Companies</CardTitle>
+        <CardTitle className="text-base tracking-tight">Companies</CardTitle>
         <CardDescription>
           The list of companies a team can be assigned to when it&apos;s created
           or edited.

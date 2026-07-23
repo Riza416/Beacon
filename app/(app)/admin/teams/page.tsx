@@ -47,14 +47,14 @@ export default async function AdminTeamsPage() {
   const companyCount = companies?.length ?? 0;
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-10">
       <header className="flex flex-wrap items-end justify-between gap-4">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Teams</h1>
-          <p className="text-sm text-muted-foreground">
+        <div className="space-y-2">
+          <h1 className="text-3xl font-semibold tracking-tight">Teams</h1>
+          <p className="text-[15px] text-muted-foreground">
             Group people for tagging, routing, and visibility.
           </p>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1 text-sm text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1 pt-1 text-sm text-muted-foreground">
             <span className="inline-flex items-center gap-1.5">
               <Users className="h-4 w-4" />
               {teamCount} {teamCount === 1 ? "team" : "teams"}
@@ -68,13 +68,10 @@ export default async function AdminTeamsPage() {
         <CreateTeamDialog companies={companies ?? []} />
       </header>
 
-      <CompaniesManager companies={companies ?? []} />
-
-      <section className="space-y-4">
-        <h2 className="text-lg font-medium leading-tight">All teams</h2>
+      <section className="space-y-5">
         {teamCount === 0 ? (
-          <Card>
-            <CardContent className="flex flex-col items-center gap-3 p-8 text-center sm:p-12">
+          <Card className="rounded-2xl border-border/60">
+            <CardContent className="flex flex-col items-center gap-3 p-12 text-center">
               <p className="text-base font-medium">No teams yet</p>
               <p className="max-w-sm text-sm text-muted-foreground">
                 Create a team to group people for tagging, routing, and
@@ -88,6 +85,10 @@ export default async function AdminTeamsPage() {
         ) : (
           <TeamsList teams={teamItems} />
         )}
+      </section>
+
+      <section className="border-t border-border/60 pt-8">
+        <CompaniesManager companies={companies ?? []} />
       </section>
     </div>
   );
