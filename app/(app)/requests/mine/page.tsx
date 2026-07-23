@@ -51,7 +51,7 @@ export default async function MineRequestsPage({ searchParams }: MinePageProps) 
     ? allRows.filter((r) => !r.status?.is_terminal)
     : allRows;
 
-  const unanswered = await fetchUnansweredComments(profile.id);
+  const tagged = await fetchTaggedAwaitingReply(profile);
 
   return (
     <div className="space-y-6">
@@ -71,31 +71,31 @@ export default async function MineRequestsPage({ searchParams }: MinePageProps) 
         </Button>
       </header>
 
-      {unanswered.length > 0 && (
+      {tagged.length > 0 && (
         <section className="space-y-2 rounded-2xl border border-amber-500/40 bg-amber-500/5 p-4">
           <h2 className="flex items-center gap-2 text-sm font-semibold">
             <MessageSquare className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-            Awaiting your reply ({unanswered.length})
+            Tagged — awaiting your reply ({tagged.length})
           </h2>
           <ul className="space-y-2">
-            {unanswered.map((c) => (
+            {tagged.map((t) => (
               <li
-                key={c.comment_id}
+                key={t.id}
                 className="rounded-md border bg-background p-3 text-sm"
               >
                 <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                  <span>{c.author_label}</span>
+                  <span>from {t.from}</span>
                   <span>·</span>
                   <Link
-                    href={`/requests/${c.request_id}`}
+                    href={`/requests/${t.id}`}
                     className="font-medium text-foreground hover:underline"
                   >
-                    {c.request_title}
+                    {t.title}
                   </Link>
                   <span>·</span>
-                  <LocalTime value={c.created_at} />
+                  <LocalTime value={t.updatedAt} />
                 </div>
-                <p className="mt-1 line-clamp-2">{c.body}</p>
+                {t.summary && <p className="mt-1 line-clamp-2">{t.summary}</p>}
               </li>
             ))}
           </ul>
@@ -190,73 +190,90 @@ function Tab({
   );
 }
 
-interface UnansweredComment {
-  comment_id: string;
-  body: string;
-  created_at: string;
-  request_id: string;
-  request_title: string;
-  author_label: string;
+interface TaggedAwaitingReply {
+  id: string;
+  title: string;
+  summary: string | null;
+  from: string;
+  updatedAt: string;
+}
+
+interface TaggedRequestRow {
+  id: string;
+  title: string;
+  summary: string | null;
+  updated_at: string;
+  team: { name: string } | null;
+  author: { full_name: string | null; email: string | null } | null;
 }
 
 /**
- * Comments on the author's own requests, by someone else, that are newer than
- * the author's most recent comment on that request (or where they never
- * replied) — i.e. comments still awaiting their reply.
+ * Requests where the current user is tagged — directly, or via their team —
+ * and hasn't replied yet (no comment of their own on the request). These are
+ * the tags still waiting on them. Excludes their own authored requests.
  */
-async function fetchUnansweredComments(
-  profileId: string
-): Promise<UnansweredComment[]> {
+async function fetchTaggedAwaitingReply(profile: {
+  id: string;
+  team_id: string | null;
+}): Promise<TaggedAwaitingReply[]> {
   const supabase = await createClient();
 
-  const { data: myReqs } = await supabase
-    .from("requests")
-    .select("id, title")
-    .eq("author_id", profileId)
-    .returns<{ id: string; title: string }[]>();
-  const ids = (myReqs ?? []).map((r) => r.id);
-  if (ids.length === 0) return [];
-  const titleById = new Map((myReqs ?? []).map((r) => [r.id, r.title]));
+  const { data: directRows } = await supabase
+    .from("request_collaborators")
+    .select("request_id")
+    .eq("user_id", profile.id)
+    .returns<{ request_id: string }[]>();
 
-  const { data: comments } = await supabase
-    .from("comments")
-    .select(
-      "id, body, created_at, request_id, author_id, author:profiles!comments_author_id_fkey(full_name, email)"
-    )
-    .in("request_id", ids)
-    .order("created_at", { ascending: true })
-    .returns<
-      {
-        id: string;
-        body: string;
-        created_at: string;
-        request_id: string;
-        author_id: string;
-        author: { full_name: string | null; email: string | null } | null;
-      }[]
-    >();
-
-  // The author's latest comment time per request (comments are ascending, so
-  // the last one seen per request wins).
-  const myLatest = new Map<string, string>();
-  for (const c of comments ?? []) {
-    if (c.author_id === profileId) myLatest.set(c.request_id, c.created_at);
+  let teamTaggedIds: string[] = [];
+  if (profile.team_id) {
+    const { data: teamRows } = await supabase
+      .from("request_team_tags")
+      .select("request_id")
+      .eq("team_id", profile.team_id)
+      .returns<{ request_id: string }[]>();
+    teamTaggedIds = (teamRows ?? []).map((r) => r.request_id);
   }
 
-  const unanswered = (comments ?? []).filter(
-    (c) =>
-      c.author_id !== profileId &&
-      (!myLatest.has(c.request_id) ||
-        c.created_at > (myLatest.get(c.request_id) as string))
+  const taggedIds = Array.from(
+    new Set([
+      ...(directRows ?? []).map((r) => r.request_id),
+      ...teamTaggedIds,
+    ])
   );
-  unanswered.sort((a, b) => b.created_at.localeCompare(a.created_at));
+  if (taggedIds.length === 0) return [];
 
-  return unanswered.slice(0, 10).map((c) => ({
-    comment_id: c.id,
-    body: c.body,
-    created_at: c.created_at,
-    request_id: c.request_id,
-    request_title: titleById.get(c.request_id) ?? "Untitled",
-    author_label: c.author?.full_name ?? c.author?.email ?? "Unknown",
-  }));
+  const { data: reqs } = await supabase
+    .from("requests")
+    .select(
+      "id, title, summary, updated_at, " +
+        "team:teams!requests_team_id_fkey(name), " +
+        "author:profiles!requests_author_id_fkey(full_name, email)"
+    )
+    .in("id", taggedIds)
+    .neq("author_id", profile.id) // not the user's own requests
+    .order("updated_at", { ascending: false })
+    .returns<TaggedRequestRow[]>();
+
+  const reqIds = (reqs ?? []).map((r) => r.id);
+  if (reqIds.length === 0) return [];
+
+  // Which of these the user has already replied to (any comment of theirs).
+  const { data: myComments } = await supabase
+    .from("comments")
+    .select("request_id")
+    .eq("author_id", profile.id)
+    .in("request_id", reqIds)
+    .returns<{ request_id: string }[]>();
+  const repliedTo = new Set((myComments ?? []).map((c) => c.request_id));
+
+  return (reqs ?? [])
+    .filter((r) => !repliedTo.has(r.id))
+    .slice(0, 10)
+    .map((r) => ({
+      id: r.id,
+      title: r.title || "Untitled request",
+      summary: r.summary,
+      from: r.author?.full_name ?? r.author?.email ?? r.team?.name ?? "Unknown",
+      updatedAt: r.updated_at,
+    }));
 }
