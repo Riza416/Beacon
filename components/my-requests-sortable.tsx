@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { GripVertical } from "lucide-react";
+import { GripVertical, Layers } from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -45,6 +45,7 @@ export interface MyRequestRow {
   updated_at: string;
   notion_url: string | null;
   status: { id: string; label: string; color: string; is_terminal: boolean } | null;
+  product: { id: string; name: string } | null;
 }
 
 interface MyRequestsSortableProps {
@@ -183,6 +184,12 @@ function SortableRow({ row }: SortableRowProps) {
         </div>
         <div className="flex flex-col items-end gap-2">
           <div className="flex flex-wrap items-center justify-end gap-2">
+            {row.product && (
+              <Badge variant="outline" className="gap-1 font-normal">
+                <Layers className="h-3 w-3" />
+                {row.product.name}
+              </Badge>
+            )}
             {row.state === "draft" && (
               <Badge variant="secondary">Draft</Badge>
             )}
