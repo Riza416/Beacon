@@ -10,7 +10,10 @@ import {
 } from "lucide-react";
 import { requireProfile } from "@/lib/auth";
 import { DemoDashboard } from "@/components/demo-dashboard";
-import { WorkstreamRequestRow } from "@/components/workstream-request-row";
+import {
+  WorkstreamRequestRow,
+  type SnapshotField,
+} from "@/components/workstream-request-row";
 import { DEMO_COOKIE } from "@/lib/demo";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardContent } from "@/components/ui/card";
@@ -285,6 +288,16 @@ async function Dashboard({
       ? "No workstream"
       : (products ?? []).find((p) => p.id === id)?.name ?? "Unknown workstream";
 
+  // Workstreams board hover snapshot: the filled custom-field values
+  // (Requirements, Value, …) per request. Only needed for that view.
+  const snapshotFieldsByRequest =
+    view === VIEW_WORKSTREAMS
+      ? await fetchSnapshotFields(
+          supabase,
+          requests.map((r) => r.id)
+        )
+      : new Map<string, SnapshotField[]>();
+
   // Tagged-for-me + recent comments are personal sections — they always show
   // when the current user has something there, regardless of role.
   const taggedForMe = await fetchTaggedForMe(profile);
@@ -382,6 +395,7 @@ async function Dashboard({
           statuses={statuses ?? []}
           ownerTeamIdsByProduct={ownerTeamIdsByProduct}
           teamNameById={teamNameById}
+          snapshotFieldsByRequest={snapshotFieldsByRequest}
           hasFilters={hasFilters}
         />
       ) : (
@@ -641,6 +655,7 @@ function WorkstreamsBoard({
   statuses,
   ownerTeamIdsByProduct,
   teamNameById,
+  snapshotFieldsByRequest,
   hasFilters,
 }: {
   orderedKeys: (string | null)[];
@@ -649,6 +664,7 @@ function WorkstreamsBoard({
   statuses: Status[];
   ownerTeamIdsByProduct: Map<string, string[]>;
   teamNameById: Map<string, string>;
+  snapshotFieldsByRequest: Map<string, SnapshotField[]>;
   hasFilters: boolean;
 }) {
   if (orderedKeys.length === 0) {
@@ -706,10 +722,7 @@ function WorkstreamsBoard({
                       }
                       deadline={r.deadline}
                       summary={r.summary}
-                      authorLabel={
-                        r.author?.full_name ?? r.author?.email ?? "Unknown"
-                      }
-                      updatedAt={r.updated_at}
+                      fields={snapshotFieldsByRequest.get(r.id) ?? []}
                       workstreamName={productName(productId)}
                     />
                   ))}
@@ -1165,4 +1178,65 @@ async function fetchRecentCommentsOnMyRequests(
     request_title: titleById.get(c.request_id) ?? "Untitled",
     author_label: c.author?.full_name ?? c.author?.email ?? "Unknown",
   }));
+}
+
+// ---------------------------------------------------------------------------
+// Workstreams board hover-snapshot: a request's filled custom-field values
+// (Requirements, Value, …), keyed by request id.
+// ---------------------------------------------------------------------------
+
+function formatSnapshotValue(
+  type: string,
+  valueText: string | null
+): { text: string } | { chips: string[] } | null {
+  if (type === "multi_select") {
+    if (!valueText) return null;
+    try {
+      const arr = JSON.parse(valueText);
+      const chips = Array.isArray(arr)
+        ? arr.filter((x): x is string => typeof x === "string")
+        : [];
+      return chips.length ? { chips } : null;
+    } catch {
+      return null;
+    }
+  }
+  if (type === "checkbox") return valueText === "true" ? { text: "Yes" } : null;
+  // Files/images (no text) and the owner-set repo link aren't author content.
+  if (type === "file" || type === "image" || type === "repo") return null;
+  const t = (valueText ?? "").trim();
+  return t.length > 0 ? { text: t } : null;
+}
+
+async function fetchSnapshotFields(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  requestIds: string[]
+): Promise<Map<string, SnapshotField[]>> {
+  const map = new Map<string, SnapshotField[]>();
+  if (requestIds.length === 0) return map;
+
+  const { data } = await supabase
+    .from("request_field_values")
+    .select(
+      "request_id, field_type, value_text, definition:request_field_definitions(label)"
+    )
+    .in("request_id", requestIds)
+    .returns<
+      {
+        request_id: string;
+        field_type: string;
+        value_text: string | null;
+        definition: { label: string } | null;
+      }[]
+    >();
+
+  for (const row of data ?? []) {
+    if (!row.definition) continue;
+    const formatted = formatSnapshotValue(row.field_type, row.value_text);
+    if (!formatted) continue;
+    const arr = map.get(row.request_id) ?? [];
+    arr.push({ label: row.definition.label, ...formatted });
+    map.set(row.request_id, arr);
+  }
+  return map;
 }

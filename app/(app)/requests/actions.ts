@@ -538,7 +538,7 @@ export async function updateRequestStatus(
   requestId: string,
   statusId: string
 ): Promise<{ ok: true }> {
-  const { supabase } = await adminAction();
+  const { supabase, profile } = await adminAction();
 
   // Read the prior status + group so we only act on an ACTUAL change and, if
   // the request crosses the active/terminal boundary, re-densify its rankings.
@@ -587,8 +587,19 @@ export async function updateRequestStatus(
       );
       await priority.compactWorkstream(supabase, before?.product_id ?? null);
     }
-    // Note: no workstream alert here. Owner alerts fire only when a request is
-    // submitted into the workstream (see submitRequest), not on status changes.
+
+    // Notify the owning team's Slack channel that the request was updated.
+    // Slack-only: the initial submission still emails (see submitRequest), but
+    // ongoing status updates go to the channel to avoid per-change email noise.
+    await notifyWorkstreamOwners({
+      requestId,
+      actorId: profile.id,
+      event: {
+        kind: "status_changed",
+        statusLabel: newStatus?.label ?? "Updated",
+      },
+      channels: ["slack"],
+    });
   }
 
   revalidatePath(`/requests/${requestId}`);

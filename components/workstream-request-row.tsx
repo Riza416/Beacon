@@ -5,6 +5,13 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { LocalTime } from "@/components/local-time";
 
+/** A filled field value for the hover snapshot: free text OR a set of chips. */
+export interface SnapshotField {
+  label: string;
+  text?: string;
+  chips?: string[];
+}
+
 export interface WorkstreamRequestRowProps {
   id: string;
   /** 1-based rank within the workstream, or null when unsequenced. */
@@ -14,8 +21,8 @@ export interface WorkstreamRequestRowProps {
   status: { label: string; color: string } | null;
   deadline: string | null;
   summary: string | null;
-  authorLabel: string;
-  updatedAt: string;
+  /** Filled custom fields (Requirements, Value, …) for the snapshot. */
+  fields: SnapshotField[];
   workstreamName: string;
 }
 
@@ -27,8 +34,7 @@ export function WorkstreamRequestRow({
   status,
   deadline,
   summary,
-  authorLabel,
-  updatedAt,
+  fields,
   workstreamName,
 }: WorkstreamRequestRowProps) {
   const overdue = deadline ? new Date(deadline) < new Date() : false;
@@ -41,13 +47,13 @@ export function WorkstreamRequestRow({
   // flip left if there isn't room.
   function openPreview(e: React.MouseEvent<HTMLLIElement>) {
     const rect = e.currentTarget.getBoundingClientRect();
-    const width = 320;
+    const width = 340;
     const margin = 8;
     let left = rect.right + margin;
     if (left + width > window.innerWidth - margin) {
       left = Math.max(margin, rect.left - width - margin);
     }
-    const top = Math.min(rect.top, window.innerHeight - 220);
+    const top = Math.min(rect.top, window.innerHeight - 320);
     setPreview({ top: Math.max(margin, top), left });
   }
 
@@ -108,12 +114,12 @@ export function WorkstreamRequestRow({
 
       {preview && (
         <div
-          className="pointer-events-none fixed z-50 w-80 rounded-xl border bg-popover p-4 text-popover-foreground shadow-lg"
+          className="pointer-events-none fixed z-50 w-[340px] rounded-xl border bg-popover p-4 text-popover-foreground shadow-lg"
           style={{ top: preview.top, left: preview.left }}
           role="tooltip"
         >
           <div className="flex items-start justify-between gap-2">
-            <p className="text-sm font-semibold leading-tight">{title}</p>
+            <p className="text-sm font-semibold leading-snug">{title}</p>
             {status && (
               <span
                 className="inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-xs"
@@ -131,48 +137,74 @@ export function WorkstreamRequestRow({
             )}
           </div>
 
-          <dl className="mt-3 space-y-1.5 text-xs">
-            <div className="flex gap-2">
-              <dt className="w-20 shrink-0 text-muted-foreground">Workstream</dt>
-              <dd className="min-w-0 font-medium">{workstreamName}</dd>
-            </div>
-            <div className="flex gap-2">
-              <dt className="w-20 shrink-0 text-muted-foreground">Requested by</dt>
-              <dd className="min-w-0 font-medium">{teamName ?? "—"}</dd>
-            </div>
-            {deadline && (
-              <div className="flex gap-2">
-                <dt className="w-20 shrink-0 text-muted-foreground">Deadline</dt>
-                <dd
-                  className={cn(
-                    "min-w-0 font-medium",
-                    overdue && "text-destructive"
-                  )}
-                >
-                  <LocalTime value={deadline} mode="dateFull" />
-                  {overdue && " · overdue"}
-                </dd>
-              </div>
+          <div className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
+            <span>{workstreamName}</span>
+            {teamName && (
+              <>
+                <span>·</span>
+                <span>{teamName}</span>
+              </>
             )}
-            <div className="flex gap-2">
-              <dt className="w-20 shrink-0 text-muted-foreground">Author</dt>
-              <dd className="min-w-0 truncate">{authorLabel}</dd>
-            </div>
-            <div className="flex gap-2">
-              <dt className="w-20 shrink-0 text-muted-foreground">Updated</dt>
-              <dd className="min-w-0">
-                <LocalTime value={updatedAt} />
-              </dd>
-            </div>
-          </dl>
+            {deadline && (
+              <>
+                <span>·</span>
+                <span className={cn(overdue && "font-medium text-destructive")}>
+                  due <LocalTime value={deadline} mode="dateFull" />
+                  {overdue && " · overdue"}
+                </span>
+              </>
+            )}
+          </div>
 
-          {summary && (
-            <p className="mt-3 line-clamp-4 border-t pt-3 text-xs text-muted-foreground">
-              {summary}
-            </p>
-          )}
+          <div className="mt-3 max-h-72 space-y-3 overflow-y-auto">
+            <SnapshotBlock label="Summary">
+              {summary ? (
+                <p className="whitespace-pre-wrap">{summary}</p>
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )}
+            </SnapshotBlock>
+
+            {fields.map((f, i) => (
+              <SnapshotBlock key={`${f.label}-${i}`} label={f.label}>
+                {f.chips && f.chips.length > 0 ? (
+                  <span className="flex flex-wrap gap-1">
+                    {f.chips.map((c) => (
+                      <span
+                        key={c}
+                        className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium"
+                      >
+                        {c}
+                      </span>
+                    ))}
+                  </span>
+                ) : (
+                  <p className="whitespace-pre-wrap">{f.text}</p>
+                )}
+              </SnapshotBlock>
+            ))}
+          </div>
         </div>
       )}
     </li>
+  );
+}
+
+function SnapshotBlock({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
+      </p>
+      <div className="mt-0.5 line-clamp-4 text-xs text-foreground">
+        {children}
+      </div>
+    </div>
   );
 }

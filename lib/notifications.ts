@@ -43,8 +43,11 @@ export async function notifyWorkstreamOwners(opts: {
   requestId: string;
   actorId: string;
   event: WorkstreamEvent;
+  /** Which channels to use. Defaults to both. */
+  channels?: ("slack" | "email")[];
 }): Promise<void> {
   try {
+    const channels = opts.channels ?? ["slack", "email"];
     const admin = createAdminClient();
 
     const { data: req, error: reqErr } = await admin
@@ -69,10 +72,12 @@ export async function notifyWorkstreamOwners(opts: {
 
     const content = buildContent(req, opts.event);
 
-    // Deliver to whatever channels are configured; both are best-effort.
+    // Deliver on the requested channels; each is best-effort and independent.
     await Promise.allSettled([
-      deliverSlack(admin, teamIds, content.slackText),
-      emailConfigured()
+      channels.includes("slack")
+        ? deliverSlack(admin, teamIds, content.slackText)
+        : Promise.resolve(),
+      channels.includes("email") && emailConfigured()
         ? deliverEmail(admin, teamIds, opts.actorId, content)
         : Promise.resolve(),
     ]);
