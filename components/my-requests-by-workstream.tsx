@@ -6,6 +6,8 @@ import type { MyRequestRow } from "@/components/my-requests-sortable";
 
 export type MyWorkstreamRow = MyRequestRow & {
   product: { id: string; name: string } | null;
+  /** True when this is a request you're tagged on (not one you authored). */
+  tagged?: boolean;
 };
 
 const NO_WORKSTREAM = "__none__";
@@ -64,6 +66,14 @@ export function MyRequestsByWorkstream({ rows }: { rows: MyWorkstreamRow[] }) {
                     <LocalTime value={r.updated_at} />
                   </p>
                 </div>
+                {r.tagged && (
+                  <span
+                    className="shrink-0 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300"
+                    title="You're tagged on this request"
+                  >
+                    Tagged
+                  </span>
+                )}
                 {r.status ? (
                   <span
                     className="inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-xs"

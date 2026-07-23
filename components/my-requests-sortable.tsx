@@ -22,13 +22,6 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { LocalTime } from "@/components/local-time";
@@ -143,89 +136,77 @@ function SortableRow({ row }: SortableRowProps) {
     transition,
   };
 
+  const href =
+    row.state === "draft" ? `/requests/${row.id}/edit` : `/requests/${row.id}`;
+
   return (
-    <Card
+    <div
       ref={setNodeRef}
       style={style}
       className={cn(
-        "group relative transition-shadow",
-        isDragging && "z-10 scale-[1.01] opacity-90 shadow-lg"
+        "group flex items-center gap-3 rounded-lg border bg-card p-3 transition-shadow",
+        isDragging && "z-10 opacity-90 shadow-lg"
       )}
     >
-      <CardHeader className="flex flex-row items-start gap-2 space-y-0 sm:gap-3">
-        <button
-          type="button"
-          aria-label={`Drag to reorder ${row.title || "draft"}`}
-          className={cn(
-            "mt-0.5 flex h-8 w-6 cursor-grab touch-none items-center justify-center rounded-md text-muted-foreground/40 transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing group-hover:text-muted-foreground",
-            isDragging && "cursor-grabbing text-foreground"
+      <button
+        type="button"
+        aria-label={`Drag to reorder ${row.title || "draft"}`}
+        className={cn(
+          "flex h-7 w-5 shrink-0 cursor-grab touch-none items-center justify-center rounded-md text-muted-foreground/40 transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing group-hover:text-muted-foreground",
+          isDragging && "cursor-grabbing text-foreground"
+        )}
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical className="h-4 w-4" />
+      </button>
+
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <Link href={href} className="truncate text-sm font-medium hover:underline">
+            {row.title || "Untitled draft"}
+          </Link>
+          {row.state === "draft" && (
+            <Badge variant="secondary" className="shrink-0">
+              Draft
+            </Badge>
           )}
-          {...attributes}
-          {...listeners}
-        >
-          <GripVertical className="h-4 w-4" />
-        </button>
-        <div className="flex-1 space-y-1 min-w-0">
-          <CardTitle className="text-base">
-            <Link
-              href={
-                row.state === "draft"
-                  ? `/requests/${row.id}/edit`
-                  : `/requests/${row.id}`
-              }
-              className="hover:underline"
-            >
-              {row.title || "Untitled draft"}
-            </Link>
-          </CardTitle>
-          <CardDescription className="line-clamp-2">
-            {row.summary || "No summary yet."}
-          </CardDescription>
         </div>
-        <div className="flex flex-col items-end gap-2">
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {row.product && (
-              <Badge variant="outline" className="gap-1 font-normal">
+        <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
+          {row.product && (
+            <>
+              <span className="inline-flex items-center gap-1">
                 <Layers className="h-3 w-3" />
                 {row.product.name}
-              </Badge>
-            )}
-            {row.state === "draft" && (
-              <Badge variant="secondary">Draft</Badge>
-            )}
-            {row.status && (
-              <Badge
-                style={{
-                  backgroundColor: row.status.color,
-                  color: "white",
-                }}
-              >
-                {row.status.label}
-              </Badge>
-            )}
-          </div>
-          <Button asChild variant="ghost" size="sm">
-            <Link
-              href={
-                row.state === "draft"
-                  ? `/requests/${row.id}/edit`
-                  : `/requests/${row.id}`
-              }
-            >
-              {row.state === "draft" ? "Edit" : "View"}
-            </Link>
-          </Button>
+              </span>
+              <span>·</span>
+            </>
+          )}
+          <span>
+            Updated <LocalTime value={row.updated_at} />
+          </span>
         </div>
-      </CardHeader>
-      <CardContent className="pt-0 pl-12 text-xs text-muted-foreground sm:pl-14">
-        Updated <LocalTime value={row.updated_at} />
-        {row.submitted_at && (
-          <>
-            {" · submitted "}
-            <LocalTime value={row.submitted_at} />
-          </>
-        )}
-      </CardContent>
-    </Card>
+      </div>
+
+      {row.status && (
+        <span
+          className="hidden shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-xs sm:inline-flex"
+          style={{
+            backgroundColor: `${row.status.color}22`,
+            color: row.status.color,
+          }}
+        >
+          <span
+            className="h-1.5 w-1.5 rounded-full"
+            style={{ backgroundColor: row.status.color }}
+          />
+          {row.status.label}
+        </span>
+      )}
+
+      <Button asChild variant="ghost" size="sm" className="shrink-0">
+        <Link href={href}>{row.state === "draft" ? "Edit" : "View"}</Link>
+      </Button>
+    </div>
   );
 }

@@ -45,13 +45,36 @@ export default async function MineRequestsPage({ searchParams }: MinePageProps) 
     .order("updated_at", { ascending: false })
     .returns<MyWorkstreamRow[]>();
 
-  const allRows = data ?? [];
-  const doneCount = allRows.filter((r) => r.status?.is_terminal).length;
-  const rows = hideDone
-    ? allRows.filter((r) => !r.status?.is_terminal)
-    : allRows;
-
+  const authored = data ?? [];
   const tagged = await fetchTaggedAwaitingReply(profile);
+
+  const applyHideDone = (list: MyWorkstreamRow[]) =>
+    hideDone ? list.filter((r) => !r.status?.is_terminal) : list;
+
+  // List view = only your own requests (you can reorder those).
+  const listRows = applyHideDone(authored);
+
+  // By-workstream view also folds in requests you're tagged on, marked so, so
+  // you see them in context within their workstream column.
+  const taggedRows: MyWorkstreamRow[] = tagged.map((t) => ({
+    id: t.id,
+    title: t.title,
+    summary: t.summary,
+    state: "submitted",
+    priority: 0,
+    submitted_at: null,
+    updated_at: t.updatedAt,
+    notion_url: null,
+    status: t.status,
+    product: t.product,
+    tagged: true,
+  }));
+  const boardRows = applyHideDone([
+    ...authored.map((r) => ({ ...r, tagged: false })),
+    ...taggedRows,
+  ]);
+
+  const doneCount = authored.filter((r) => r.status?.is_terminal).length;
 
   return (
     <div className="space-y-6">
@@ -102,7 +125,7 @@ export default async function MineRequestsPage({ searchParams }: MinePageProps) 
         </section>
       )}
 
-      {allRows.length === 0 ? (
+      {authored.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center gap-3 p-8 text-center sm:p-12">
             <CardTitle className="text-base">
@@ -144,21 +167,31 @@ export default async function MineRequestsPage({ searchParams }: MinePageProps) 
             )}
           </div>
 
-          {rows.length === 0 ? (
-            <Card>
-              <CardContent className="p-8 text-center text-sm text-muted-foreground">
-                All your requests are completed — untick &ldquo;Hide
-                completed&rdquo; to see them.
-              </CardContent>
-            </Card>
-          ) : view === VIEW_WORKSTREAMS ? (
-            <MyRequestsByWorkstream rows={rows} />
+          {view === VIEW_WORKSTREAMS ? (
+            boardRows.length === 0 ? (
+              <AllDoneCard />
+            ) : (
+              <MyRequestsByWorkstream rows={boardRows} />
+            )
+          ) : listRows.length === 0 ? (
+            <AllDoneCard />
           ) : (
-            <MyRequestsSortable initialRows={rows} />
+            <MyRequestsSortable initialRows={listRows} />
           )}
         </>
       )}
     </div>
+  );
+}
+
+function AllDoneCard() {
+  return (
+    <Card>
+      <CardContent className="p-8 text-center text-sm text-muted-foreground">
+        All your requests are completed — untick &ldquo;Hide completed&rdquo; to
+        see them.
+      </CardContent>
+    </Card>
   );
 }
 
@@ -196,6 +229,13 @@ interface TaggedAwaitingReply {
   summary: string | null;
   from: string;
   updatedAt: string;
+  product: { id: string; name: string } | null;
+  status: {
+    id: string;
+    label: string;
+    color: string;
+    is_terminal: boolean;
+  } | null;
 }
 
 interface TaggedRequestRow {
@@ -205,6 +245,13 @@ interface TaggedRequestRow {
   updated_at: string;
   team: { name: string } | null;
   author: { full_name: string | null; email: string | null } | null;
+  product: { id: string; name: string } | null;
+  status: {
+    id: string;
+    label: string;
+    color: string;
+    is_terminal: boolean;
+  } | null;
 }
 
 /**
@@ -247,7 +294,9 @@ async function fetchTaggedAwaitingReply(profile: {
     .select(
       "id, title, summary, updated_at, " +
         "team:teams!requests_team_id_fkey(name), " +
-        "author:profiles!requests_author_id_fkey(full_name, email)"
+        "author:profiles!requests_author_id_fkey(full_name, email), " +
+        "product:products(id, name), " +
+        "status:statuses(id, label, color, is_terminal)"
     )
     .in("id", taggedIds)
     .neq("author_id", profile.id) // not the user's own requests
@@ -275,5 +324,7 @@ async function fetchTaggedAwaitingReply(profile: {
       summary: r.summary,
       from: r.author?.full_name ?? r.author?.email ?? r.team?.name ?? "Unknown",
       updatedAt: r.updated_at,
+      product: r.product,
+      status: r.status,
     }));
 }
