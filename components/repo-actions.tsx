@@ -10,19 +10,28 @@ function repoLinks(rawUrl: string): {
   accessUrl: string;
   branchUrl: string;
 } {
-  const base = rawUrl.replace(/\/+$/, "");
   try {
     const u = new URL(rawUrl);
+    // Normalize: drop a trailing slash and a ".git" clone suffix so the
+    // derived pages resolve (e.g. github.com/org/repo.git/branches → 404).
+    const path = u.pathname.replace(/\/+$/, "").replace(/\.git$/i, "");
     if (u.hostname.includes("github")) {
-      return { host: "GitHub", accessUrl: rawUrl, branchUrl: `${base}/branches` };
+      // Reduce to owner/repo so extra path (/tree/main, …) doesn't break it.
+      const segs = path.split("/").filter(Boolean).slice(0, 2);
+      const repo = `${u.origin}/${segs.join("/")}`;
+      return { host: "GitHub", accessUrl: repo, branchUrl: `${repo}/branches` };
     }
     if (u.hostname.includes("gitlab")) {
-      return { host: "GitLab", accessUrl: rawUrl, branchUrl: `${base}/-/branches` };
+      // GitLab groups can nest, so keep the full (de-suffixed) path.
+      const repo = `${u.origin}${path}`;
+      return { host: "GitLab", accessUrl: repo, branchUrl: `${repo}/-/branches` };
     }
+    const repo = `${u.origin}${path}`;
+    return { host: null, accessUrl: repo, branchUrl: repo };
   } catch {
     // Not a parseable URL — fall through to the raw value.
+    return { host: null, accessUrl: rawUrl, branchUrl: rawUrl };
   }
-  return { host: null, accessUrl: rawUrl, branchUrl: rawUrl };
 }
 
 /**
@@ -40,7 +49,7 @@ export function RepoActions({
   return (
     <div className="space-y-2 rounded-md border bg-muted/20 p-3">
       <a
-        href={url}
+        href={accessUrl}
         target="_blank"
         rel="noopener noreferrer"
         className="flex items-center gap-1 break-all text-sm font-medium hover:underline"
