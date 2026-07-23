@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* Class-based dark mode: `dark:` utilities apply under a `.dark` ancestor. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --color-border: hsl(var(--border));
   --color-input: hsl(var(--input));
@@ -67,6 +70,42 @@
   --ring: 270 80% 56%;
 }
 
+/*
+ * Beacon — dark theme. Violet-tinted charcoal surfaces, the brand violet
+ * lifted for contrast on dark grounds. Applied via a `.dark` class on <html>.
+ */
+.dark {
+  color-scheme: dark;
+
+  --background: 250 18% 8%;
+  --foreground: 240 15% 92%;
+
+  --card: 250 16% 12%;
+  --card-foreground: 240 15% 92%;
+
+  --popover: 250 16% 12%;
+  --popover-foreground: 240 15% 92%;
+
+  --primary: 270 90% 72%;
+  --primary-foreground: 270 40% 10%;
+
+  --secondary: 250 18% 20%;
+  --secondary-foreground: 250 25% 88%;
+
+  --muted: 250 14% 17%;
+  --muted-foreground: 240 10% 62%;
+
+  --accent: 270 40% 24%;
+  --accent-foreground: 270 60% 88%;
+
+  --destructive: 0 70% 58%;
+  --destructive-foreground: 0 0% 100%;
+
+  --border: 250 12% 22%;
+  --input: 250 12% 24%;
+  --ring: 270 90% 72%;
+}
+
 @layer base {
   * {
     border-color: hsl(var(--border));
@@ -95,6 +134,24 @@
   ::selection {
     background-color: hsl(270 80% 56% / 0.2);
     color: hsl(240 20% 12%);
+  }
+
+  /* Dark-theme tweaks for the ambient gradient, selection, and form controls. */
+  .dark body {
+    background-image: radial-gradient(
+      ellipse 80% 45% at 50% -20%,
+      hsl(270 70% 32% / 0.28),
+      transparent 60%
+    );
+  }
+  .dark ::selection {
+    background-color: hsl(270 85% 62% / 0.32);
+    color: hsl(240 15% 96%);
+  }
+  .dark input,
+  .dark textarea,
+  .dark select {
+    color-scheme: dark;
   }
 
   h1,
