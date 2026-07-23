@@ -1,18 +1,11 @@
-import Link from "next/link";
+import { Building2, Users } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import type { Company, Team } from "@/lib/types";
 import { TEAM_WITH_MEMBER_COUNT_SELECT } from "@/lib/queries";
 import { CreateTeamDialog } from "./_components/create-team-dialog";
 import { CompaniesManager } from "./_components/companies-manager";
+import { TeamsList } from "./_components/teams-list";
 
 type TeamWithMembers = Team & {
   members: { count: number }[] | null;
@@ -38,24 +31,50 @@ export default async function AdminTeamsPage() {
     (companies ?? []).map((c) => [c.id, c.name])
   );
 
+  // Flatten to plain, serializable rows for the client-side list/filter. All
+  // data fetching stays here in the server component.
+  const teamItems = (teams ?? []).map((team) => ({
+    id: team.id,
+    name: team.name,
+    companyName: team.company_id
+      ? companyNameById.get(team.company_id) ?? null
+      : null,
+    description: team.description,
+    memberCount: team.members?.[0]?.count ?? 0,
+  }));
+
+  const teamCount = teamItems.length;
+  const companyCount = companies?.length ?? 0;
+
   return (
     <div className="space-y-8">
       <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
+        <div className="space-y-1">
           <h1 className="text-2xl font-semibold tracking-tight">Teams</h1>
           <p className="text-sm text-muted-foreground">
             Group people for tagging, routing, and visibility.
           </p>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1 text-sm text-muted-foreground">
+            <span className="inline-flex items-center gap-1.5">
+              <Users className="h-4 w-4" />
+              {teamCount} {teamCount === 1 ? "team" : "teams"}
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <Building2 className="h-4 w-4" />
+              {companyCount} {companyCount === 1 ? "company" : "companies"}
+            </span>
+          </div>
         </div>
         <CreateTeamDialog companies={companies ?? []} />
       </header>
 
       <CompaniesManager companies={companies ?? []} />
 
-      <Card>
-        <CardContent className="p-0">
-          {!teams || teams.length === 0 ? (
-            <div className="flex flex-col items-center gap-3 p-8 text-center sm:p-12">
+      <section className="space-y-4">
+        <h2 className="text-lg font-medium leading-tight">All teams</h2>
+        {teamCount === 0 ? (
+          <Card>
+            <CardContent className="flex flex-col items-center gap-3 p-8 text-center sm:p-12">
               <p className="text-base font-medium">No teams yet</p>
               <p className="max-w-sm text-sm text-muted-foreground">
                 Create a team to group people for tagging, routing, and
@@ -64,47 +83,12 @@ export default async function AdminTeamsPage() {
               <div className="mt-2">
                 <CreateTeamDialog companies={companies ?? []} />
               </div>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Company</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead className="w-24">Members</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {teams.map((team) => {
-                  const memberCount = team.members?.[0]?.count ?? 0;
-                  return (
-                    <TableRow key={team.id}>
-                      <TableCell className="font-medium">
-                        <Link
-                          href={`/admin/teams/${team.id}`}
-                          className="hover:underline"
-                        >
-                          {team.name}
-                        </Link>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {team.company_id
-                          ? companyNameById.get(team.company_id) ?? "—"
-                          : "—"}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {team.description || "—"}
-                      </TableCell>
-                      <TableCell>{memberCount}</TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
+        ) : (
+          <TeamsList teams={teamItems} />
+        )}
+      </section>
     </div>
   );
 }
