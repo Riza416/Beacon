@@ -251,10 +251,12 @@ export default function GuidePage() {
           <section>
             <ChapterHeading {...CHAPTERS[4]} audience="Workstream owners" />
             <p>
-              Each workstream decides what a request into it must include. Owners
-              edit that from the workstream&apos;s <strong>Template</strong> page
-              (owning-team admins via <em>My team → Workstreams</em>; global admins
-              via <em>Workstreams</em>).
+              Each workstream decides what a request into it must include. Open
+              its <strong>Template</strong> page from where you manage workstreams
+              — team admins via <em>My team → Manage workstreams</em>; global
+              admins (and members granted edit rights) via the{" "}
+              <em>Workstreams</em> nav — then click <strong>Template</strong> on
+              the workstream.
             </p>
             <Figure
               src="/guide-assets/g-template.jpeg"
