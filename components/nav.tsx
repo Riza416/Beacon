@@ -87,6 +87,9 @@ export default async function Nav() {
             <Link href="/requests/new" className="text-muted-foreground hover:text-foreground">
               New request
             </Link>
+            <Link href="/guide" className="text-muted-foreground hover:text-foreground">
+              Guide
+            </Link>
             {isTeamAdmin && (
               <Link href="/team" className="text-muted-foreground hover:text-foreground">
                 My team
