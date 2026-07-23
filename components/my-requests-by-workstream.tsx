@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { Layers } from "lucide-react";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
 import { LocalTime } from "@/components/local-time";
 import type { MyRequestRow } from "@/components/my-requests-sortable";
 
@@ -12,9 +11,9 @@ export type MyWorkstreamRow = MyRequestRow & {
 const NO_WORKSTREAM = "__none__";
 
 /**
- * Read-only overview of the author's own requests grouped by workstream, with a
- * per-workstream status tally and each request's current status — so they can
- * see where everything they've asked for stands, at a glance.
+ * Compact overview of the author's own requests grouped by workstream — one
+ * small card per workstream (like the dashboard board), with a status-mix bar
+ * and each request's status, so they can see where things stand at a glance.
  */
 export function MyRequestsByWorkstream({ rows }: { rows: MyWorkstreamRow[] }) {
   const groups = new Map<string, { name: string; rows: MyWorkstreamRow[] }>();
@@ -34,82 +33,87 @@ export function MyRequestsByWorkstream({ rows }: { rows: MyWorkstreamRow[] }) {
   });
 
   return (
-    <div className="space-y-6">
-      {ordered.map(([key, group]) => {
-        // Tally the author's requests in this workstream by status.
-        const tally = new Map<string, { color: string; n: number }>();
-        for (const r of group.rows) {
-          const label = r.status?.label ?? "No status";
-          const color = r.status?.color ?? "#94a3b8";
-          const cur = tally.get(label) ?? { color, n: 0 };
-          cur.n += 1;
-          tally.set(label, cur);
-        }
-        return (
-          <section key={key} className="space-y-3">
-            <div className="flex items-center gap-2 px-1">
-              <Layers className="h-4 w-4 text-muted-foreground" />
-              <h2 className="text-base font-semibold tracking-tight">
-                {group.name}
-              </h2>
-              <span className="text-xs text-muted-foreground">
-                {group.rows.length}
-              </span>
+    <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+      {ordered.map(([key, group]) => (
+        <Card key={key} className="flex flex-col">
+          <div className="flex items-center justify-between gap-2 border-b p-4">
+            <div className="flex min-w-0 items-center gap-2">
+              <Layers className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <h3 className="truncate text-sm font-semibold">{group.name}</h3>
             </div>
-            <Card>
-              <CardContent className="p-0">
-                <div className="flex flex-wrap gap-2 border-b p-4">
-                  {[...tally.entries()].map(([label, { color, n }]) => (
-                    <span
-                      key={label}
-                      className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs"
-                    >
-                      <span
-                        className="h-2 w-2 rounded-full"
-                        style={{ backgroundColor: color }}
-                      />
-                      <span className="font-medium tabular-nums">{n}</span>
-                      <span className="text-muted-foreground">{label}</span>
-                    </span>
-                  ))}
+            <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
+              {group.rows.length}
+            </span>
+          </div>
+
+          <StatusBar rows={group.rows} />
+
+          <ul className="max-h-72 flex-1 divide-y overflow-y-auto">
+            {group.rows.map((r) => (
+              <li key={r.id} className="flex items-center gap-2 p-3">
+                <div className="min-w-0 flex-1">
+                  <Link
+                    href={`/requests/${r.id}`}
+                    className="block truncate text-sm font-medium hover:underline"
+                    title={r.title || "Untitled draft"}
+                  >
+                    {r.title || "Untitled draft"}
+                  </Link>
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                    {r.state === "draft" && "Draft · "}
+                    <LocalTime value={r.updated_at} />
+                  </p>
                 </div>
-                <ul className="divide-y">
-                  {group.rows.map((r) => (
-                    <li key={r.id} className="flex items-center gap-3 p-4">
-                      <div className="min-w-0 flex-1">
-                        <Link
-                          href={`/requests/${r.id}`}
-                          className="font-medium hover:underline"
-                        >
-                          {r.title || "Untitled draft"}
-                        </Link>
-                        <p className="mt-0.5 text-xs text-muted-foreground">
-                          {r.state === "draft" && "Draft · "}
-                          Updated <LocalTime value={r.updated_at} />
-                        </p>
-                      </div>
-                      {r.status ? (
-                        <Badge
-                          style={{
-                            backgroundColor: r.status.color,
-                            color: "white",
-                          }}
-                        >
-                          {r.status.label}
-                        </Badge>
-                      ) : (
-                        <span className="shrink-0 text-xs text-muted-foreground">
-                          No status
-                        </span>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </CardContent>
-            </Card>
-          </section>
-        );
-      })}
+                {r.status ? (
+                  <span
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-xs"
+                    style={{
+                      backgroundColor: `${r.status.color}22`,
+                      color: r.status.color,
+                    }}
+                    title={r.status.label}
+                  >
+                    <span
+                      className="h-1.5 w-1.5 rounded-full"
+                      style={{ backgroundColor: r.status.color }}
+                    />
+                    {r.status.label}
+                  </span>
+                ) : (
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    No status
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ))}
+    </section>
+  );
+}
+
+/** Thin segmented bar of the workstream's status mix (hover a segment for its count). */
+function StatusBar({ rows }: { rows: MyWorkstreamRow[] }) {
+  if (rows.length === 0) return null;
+  const tally = new Map<string, { color: string; n: number }>();
+  for (const r of rows) {
+    const label = r.status?.label ?? "No status";
+    const color = r.status?.color ?? "#94a3b8";
+    const cur = tally.get(label) ?? { color, n: 0 };
+    cur.n += 1;
+    tally.set(label, cur);
+  }
+  return (
+    <div className="flex h-1.5 w-full overflow-hidden">
+      {[...tally.entries()].map(([label, { color, n }]) => (
+        <div
+          key={label}
+          className="h-full"
+          style={{ width: `${(n / rows.length) * 100}%`, backgroundColor: color }}
+          title={`${label}: ${n}`}
+        />
+      ))}
     </div>
   );
 }
