@@ -61,37 +61,21 @@ export default async function MineRequestsPage({ searchParams }: MinePageProps) 
   // ignores deadline/fields, so the raw authored rows are the right shape.
   const listRows = applyHideDone(authored);
 
-  // Snapshot custom-field values for every request that can appear on the board
-  // (authored + tagged), fetched once and keyed by request id.
-  const boardRequestIds = Array.from(
-    new Set([...authored.map((r) => r.id), ...tagged.map((t) => t.id)])
+  // Snapshot custom-field values for the board (your own requests), keyed by id.
+  const snapshotFields = await fetchSnapshotFields(
+    supabase,
+    authored.map((r) => r.id)
   );
-  const snapshotFields = await fetchSnapshotFields(supabase, boardRequestIds);
 
-  // By-workstream view also folds in requests you're tagged on, marked so, so
-  // you see them in context within their workstream column.
-  const boardRows: MyWorkstreamRow[] = applyHideDone([
-    ...authored.map((r) => ({
+  // By-workstream view shows ONLY your own requests, grouped by workstream.
+  // (Requests you're tagged on live in the "awaiting your reply" callout above.)
+  const boardRows: MyWorkstreamRow[] = applyHideDone(
+    authored.map((r) => ({
       ...r,
       fields: snapshotFields.get(r.id) ?? [],
       tagged: false,
-    })),
-    ...tagged.map((t) => ({
-      id: t.id,
-      title: t.title,
-      summary: t.summary,
-      state: "submitted" as const,
-      priority: 0,
-      submitted_at: null,
-      updated_at: t.updatedAt,
-      notion_url: null,
-      deadline: t.deadline,
-      status: t.status,
-      product: t.product,
-      fields: snapshotFields.get(t.id) ?? [],
-      tagged: true,
-    })),
-  ]);
+    }))
+  );
 
   const doneCount = authored.filter((r) => r.status?.is_terminal).length;
 
