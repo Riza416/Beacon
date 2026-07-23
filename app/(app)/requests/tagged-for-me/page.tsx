@@ -9,7 +9,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { formatDate } from "@/lib/utils";
+import { LocalTime } from "@/components/local-time";
 
 export const dynamic = "force-dynamic";
 
@@ -182,7 +182,7 @@ export default async function TaggedForMePage() {
                         </span>
                         <span className="ml-2 text-xs text-muted-foreground">
                           via {kind === "user" ? "you" : "your team"} · By {authorLabel} ·{" "}
-                          {formatDate(r.submitted_at ?? r.updated_at)}
+                          <LocalTime value={r.submitted_at ?? r.updated_at} />
                         </span>
                       </span>
                       <span className="flex shrink-0 items-center gap-2">

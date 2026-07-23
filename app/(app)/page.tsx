@@ -17,7 +17,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DashboardRowControls } from "@/components/dashboard-row-controls";
 import { DashboardFilters } from "@/components/dashboard-filters";
-import { cn, formatDate } from "@/lib/utils";
+import { cn } from "@/lib/utils";
+import { LocalTime } from "@/components/local-time";
 import { REQUEST_CARD_SELECT } from "@/lib/queries";
 import type { Profile, Status, Team } from "@/lib/types";
 
@@ -513,7 +514,7 @@ async function Dashboard({
                         {c.request_title}
                       </Link>
                       <span>·</span>
-                      <span>{formatDate(c.created_at)}</span>
+                      <LocalTime value={c.created_at} />
                     </div>
                     <p className="mt-1 line-clamp-2">{c.body}</p>
                   </li>
@@ -1053,7 +1054,7 @@ function RequestRowItem({
           </span>
           <span className="truncate">{authorLabel}</span>
           <span>·</span>
-          <span>{formatDate(r.updated_at)}</span>
+          <LocalTime value={r.updated_at} />
           {r.deadline && (
             <>
               <span>·</span>
@@ -1065,11 +1066,7 @@ function RequestRowItem({
                 title="Deadline"
               >
                 <Calendar className="h-3 w-3" />
-                due{" "}
-                {new Date(r.deadline).toLocaleDateString(undefined, {
-                  month: "short",
-                  day: "numeric",
-                })}
+                due <LocalTime value={r.deadline} mode="date" />
               </span>
             </>
           )}

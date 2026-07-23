@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/table";
 import type { Profile, Team } from "@/lib/types";
 import { TEAM_REQUEST_SELECT } from "@/lib/queries";
-import { formatDate } from "@/lib/utils";
+import { LocalTime } from "@/components/local-time";
 import { EditTeamDialog } from "../_components/edit-team-dialog";
 import { AddMemberDialog } from "../_components/add-member-dialog";
 import { RemoveMemberButton } from "../_components/remove-member-button";
@@ -318,7 +318,7 @@ function RequestTable({
               {r.author?.email ?? r.author?.full_name ?? "Unknown"}
             </TableCell>
             <TableCell className="text-xs text-muted-foreground">
-              {formatDate(r.updated_at)}
+              <LocalTime value={r.updated_at} />
             </TableCell>
           </TableRow>
         ))}

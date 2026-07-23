@@ -31,7 +31,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { formatDate } from "@/lib/utils";
+import { LocalTime } from "@/components/local-time";
 import { cn } from "@/lib/utils";
 import { reorderMineFull } from "@/app/(app)/requests/mine/actions";
 
@@ -211,10 +211,13 @@ function SortableRow({ row }: SortableRowProps) {
         </div>
       </CardHeader>
       <CardContent className="pt-0 pl-12 text-xs text-muted-foreground sm:pl-14">
-        Updated {formatDate(row.updated_at)}
-        {row.submitted_at
-          ? ` · submitted ${formatDate(row.submitted_at)}`
-          : ""}
+        Updated <LocalTime value={row.updated_at} />
+        {row.submitted_at && (
+          <>
+            {" · submitted "}
+            <LocalTime value={row.submitted_at} />
+          </>
+        )}
       </CardContent>
     </Card>
   );

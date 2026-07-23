@@ -24,7 +24,7 @@ import { markTagsViewed } from "@/app/(app)/requests/actions";
 import { RepoActions } from "@/components/repo-actions";
 import { resolveFieldsForProduct } from "@/lib/workstream-template";
 import { COMMENT_SELECT, REQUEST_DETAIL_SELECT } from "@/lib/queries";
-import { formatDate } from "@/lib/utils";
+import { LocalTime } from "@/components/local-time";
 import type {
   Comment,
   FieldDefinition,
@@ -233,17 +233,19 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
           </div>
           <p className="text-sm text-muted-foreground">
             By {authorLabel}
-            {request.submitted_at
-              ? ` · submitted ${formatDate(request.submitted_at)}`
-              : ` · updated ${formatDate(request.updated_at)}`}
+            {request.submitted_at ? (
+              <>
+                {" · submitted "}
+                <LocalTime value={request.submitted_at} />
+              </>
+            ) : (
+              <>
+                {" · updated "}
+                <LocalTime value={request.updated_at} />
+              </>
+            )}
             {request.deadline && (
-              <span
-                className={
-                  new Date(request.deadline) < new Date()
-                    ? " · text-destructive font-medium"
-                    : ""
-                }
-              >
+              <span>
                 {" · deadline "}
                 <span
                   className={
@@ -252,11 +254,7 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
                       : "font-medium"
                   }
                 >
-                  {new Date(request.deadline).toLocaleDateString(undefined, {
-                    year: "numeric",
-                    month: "short",
-                    day: "numeric",
-                  })}
+                  <LocalTime value={request.deadline} mode="dateFull" />
                 </span>
               </span>
             )}
@@ -414,7 +412,7 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
                 <li key={c.id} className="rounded-md border bg-muted/30 p-3">
                   <div className="text-xs text-muted-foreground">
                     {c.author?.full_name ?? c.author?.email ?? "Unknown"} ·{" "}
-                    {formatDate(c.created_at)}
+                    <LocalTime value={c.created_at} />
                   </div>
                   <p className="mt-1 whitespace-pre-wrap text-sm">{c.body}</p>
                 </li>
