@@ -13,23 +13,44 @@ type TeamWithMembers = Team & {
 
 export default async function AdminTeamsPage() {
   const supabase = await createClient();
-  const [{ data: teams }, { data: companies }] = await Promise.all([
-    supabase
-      .from("teams")
-      // Explicit FK path required: request_team_tag_views introduced a second
-      // teams⇄profiles relationship that PostgREST can't pick between.
-      .select(TEAM_WITH_MEMBER_COUNT_SELECT)
-      .order("name", { ascending: true })
-      .returns<TeamWithMembers[]>(),
-    supabase
-      .from("companies")
-      .select("id, name")
-      .order("name", { ascending: true })
-      .returns<Pick<Company, "id" | "name">[]>(),
-  ]);
+  const [{ data: teams }, { data: companies }, { data: profiles }] =
+    await Promise.all([
+      supabase
+        .from("teams")
+        // Explicit FK path required: request_team_tag_views introduced a second
+        // teams⇄profiles relationship that PostgREST can't pick between.
+        .select(TEAM_WITH_MEMBER_COUNT_SELECT)
+        .order("name", { ascending: true })
+        .returns<TeamWithMembers[]>(),
+      supabase
+        .from("companies")
+        .select("id, name")
+        .order("name", { ascending: true })
+        .returns<Pick<Company, "id" | "name">[]>(),
+      // Members, so the search can match by name/email and surface their team.
+      supabase
+        .from("profiles")
+        .select("full_name, email, team_id")
+        .order("full_name", { ascending: true })
+        .returns<
+          { full_name: string | null; email: string | null; team_id: string | null }[]
+        >(),
+    ]);
   const companyNameById = new Map(
     (companies ?? []).map((c) => [c.id, c.name])
   );
+
+  // team_id -> its members (name + email), for the client-side search.
+  const membersByTeam = new Map<
+    string,
+    { name: string | null; email: string | null }[]
+  >();
+  for (const p of profiles ?? []) {
+    if (!p.team_id) continue;
+    const arr = membersByTeam.get(p.team_id) ?? [];
+    arr.push({ name: p.full_name, email: p.email });
+    membersByTeam.set(p.team_id, arr);
+  }
 
   // Flatten to plain, serializable rows for the client-side list/filter. All
   // data fetching stays here in the server component.
@@ -41,6 +62,7 @@ export default async function AdminTeamsPage() {
       : null,
     description: team.description,
     memberCount: team.members?.[0]?.count ?? 0,
+    members: membersByTeam.get(team.id) ?? [],
   }));
 
   const teamCount = teamItems.length;

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Building2, ChevronRight, Search, Users } from "lucide-react";
+import { Building2, ChevronRight, Mail, Search, Users } from "lucide-react";
 
 export interface TeamListItem {
   id: string;
@@ -10,6 +10,7 @@ export interface TeamListItem {
   companyName: string | null;
   description: string | null;
   memberCount: number;
+  members: { name: string | null; email: string | null }[];
 }
 
 function initials(name: string): string {
@@ -21,18 +22,29 @@ function initials(name: string): string {
 
 const NO_COMPANY = "__none__";
 
+function memberMatches(
+  m: { name: string | null; email: string | null },
+  q: string
+): boolean {
+  return (
+    (m.email?.toLowerCase().includes(q) ?? false) ||
+    (m.name?.toLowerCase().includes(q) ?? false)
+  );
+}
+
 export function TeamsList({ teams }: { teams: TeamListItem[] }) {
   const [query, setQuery] = useState("");
+  const q = query.trim().toLowerCase();
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
     if (!q) return teams;
     return teams.filter(
       (t) =>
         t.name.toLowerCase().includes(q) ||
-        (t.companyName?.toLowerCase().includes(q) ?? false)
+        (t.companyName?.toLowerCase().includes(q) ?? false) ||
+        t.members.some((m) => memberMatches(m, q))
     );
-  }, [teams, query]);
+  }, [teams, q]);
 
   // One column per company. Companies alphabetical; "No company" last.
   const columns = useMemo(() => {
@@ -62,15 +74,15 @@ export function TeamsList({ teams }: { teams: TeamListItem[] }) {
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search teams"
-          aria-label="Search teams"
+          placeholder="Search teams, companies, or a member's email"
+          aria-label="Search teams, companies, or members"
           className="h-11 w-full rounded-full border border-transparent bg-muted/60 pl-11 pr-4 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-border focus:bg-background"
         />
       </div>
 
       {filtered.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-border/70 p-12 text-center text-sm text-muted-foreground">
-          No teams match &ldquo;{query}&rdquo;.
+          No teams, companies, or members match &ldquo;{query}&rdquo;.
         </div>
       ) : (
         <div className="flex gap-4 overflow-x-auto pb-2">
@@ -90,35 +102,63 @@ export function TeamsList({ teams }: { teams: TeamListItem[] }) {
               </div>
 
               <div className="flex flex-col gap-2.5">
-                {col.teams.map((team) => (
-                  <Link
-                    key={team.id}
-                    href={`/admin/teams/${team.id}`}
-                    className="group flex flex-col gap-3 rounded-xl border border-border/60 bg-card p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-border hover:shadow-md"
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold tracking-tight text-primary">
-                        {initials(team.name)}
-                      </span>
-                      <div className="min-w-0 flex-1 truncate text-sm font-semibold tracking-tight">
-                        {team.name}
+                {col.teams.map((team) => {
+                  // When the search hit a member (not the team/company name),
+                  // show who matched so it's clear why this team surfaced.
+                  const matched = q
+                    ? team.members.filter((m) => memberMatches(m, q))
+                    : [];
+                  return (
+                    <Link
+                      key={team.id}
+                      href={`/admin/teams/${team.id}`}
+                      className="group flex flex-col gap-3 rounded-xl border border-border/60 bg-card p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-border hover:shadow-md"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold tracking-tight text-primary">
+                          {initials(team.name)}
+                        </span>
+                        <div className="min-w-0 flex-1 truncate text-sm font-semibold tracking-tight">
+                          {team.name}
+                        </div>
+                        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/40 transition-all group-hover:translate-x-0.5 group-hover:text-muted-foreground" />
                       </div>
-                      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/40 transition-all group-hover:translate-x-0.5 group-hover:text-muted-foreground" />
-                    </div>
 
-                    {team.description && (
-                      <p className="line-clamp-2 text-sm leading-relaxed text-muted-foreground">
-                        {team.description}
-                      </p>
-                    )}
+                      {matched.length > 0 ? (
+                        <div className="flex flex-col gap-1 rounded-lg bg-primary/5 p-2">
+                          {matched.slice(0, 3).map((m, i) => (
+                            <span
+                              key={i}
+                              className="flex items-center gap-1.5 text-xs text-foreground"
+                            >
+                              <Mail className="h-3 w-3 shrink-0 text-primary" />
+                              <span className="truncate">
+                                {m.email ?? m.name}
+                              </span>
+                            </span>
+                          ))}
+                          {matched.length > 3 && (
+                            <span className="text-xs text-muted-foreground">
+                              +{matched.length - 3} more
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        team.description && (
+                          <p className="line-clamp-2 text-sm leading-relaxed text-muted-foreground">
+                            {team.description}
+                          </p>
+                        )
+                      )}
 
-                    <div className="flex items-center gap-1.5 border-t border-border/60 pt-3 text-xs text-muted-foreground">
-                      <Users className="h-3.5 w-3.5" />
-                      {team.memberCount}{" "}
-                      {team.memberCount === 1 ? "member" : "members"}
-                    </div>
-                  </Link>
-                ))}
+                      <div className="flex items-center gap-1.5 border-t border-border/60 pt-3 text-xs text-muted-foreground">
+                        <Users className="h-3.5 w-3.5" />
+                        {team.memberCount}{" "}
+                        {team.memberCount === 1 ? "member" : "members"}
+                      </div>
+                    </Link>
+                  );
+                })}
               </div>
             </div>
           ))}
