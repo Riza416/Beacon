@@ -128,7 +128,7 @@ async function assertEditable(
   return data;
 }
 
-export async function createDraft(): Promise<void> {
+export async function createDraft(): Promise<{ id: string }> {
   const { supabase, profile } = await authedAction();
 
   const { data: defaultStatus } = await supabase
@@ -178,10 +178,10 @@ export async function createDraft(): Promise<void> {
     throw new Error(error?.message ?? "Could not create draft");
   }
 
-  // No revalidatePath: this runs during the /requests/new page render which
-  // disallows it, and the destination (/edit) and list pages (/requests/mine, /)
-  // are all dynamic — they re-fetch on next navigation anyway.
-  redirect(`/requests/${inserted.id}/edit`);
+  // The row is only created when the author explicitly saves/submits (the
+  // client calls this then persists the form state), so abandoned "new request"
+  // visits never leave a draft behind. Return the id for the client to use.
+  return { id: inserted.id };
 }
 
 async function persistFormState(
@@ -538,7 +538,7 @@ export async function updateRequestStatus(
   requestId: string,
   statusId: string
 ): Promise<{ ok: true }> {
-  const { supabase, profile } = await adminAction();
+  const { supabase } = await adminAction();
 
   // Read the prior status + group so we only act on an ACTUAL change and, if
   // the request crosses the active/terminal boundary, re-densify its rankings.
@@ -587,15 +587,8 @@ export async function updateRequestStatus(
       );
       await priority.compactWorkstream(supabase, before?.product_id ?? null);
     }
-
-    await notifyWorkstreamOwners({
-      requestId,
-      actorId: profile.id,
-      event: {
-        kind: "status_changed",
-        statusLabel: newStatus?.label ?? "Updated",
-      },
-    });
+    // Note: no workstream alert here. Owner alerts fire only when a request is
+    // submitted into the workstream (see submitRequest), not on status changes.
   }
 
   revalidatePath(`/requests/${requestId}`);

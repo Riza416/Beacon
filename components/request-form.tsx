@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,7 @@ import {
 import {
   addTeamTag,
   removeTeamTag,
+  createDraft,
   saveDraft,
   submitRequest,
   setFieldFile,
@@ -44,7 +45,10 @@ import type {
 } from "@/lib/types";
 
 interface RequestFormProps {
-  request: RequestRow;
+  /** The existing request row, or null when composing a brand-new request that
+   * has not been persisted yet. In "new" mode the row is created lazily on the
+   * first explicit save/submit (see ensureId). */
+  request: RequestRow | null;
   fields: FieldDefinition[];
   values: FieldValue[];
   canSubmit: boolean;
@@ -132,10 +136,38 @@ export function RequestForm({
   authorTeamId,
 }: RequestFormProps) {
   const router = useRouter();
-  const [title, setTitle] = React.useState(request.title ?? "");
-  const [summary, setSummary] = React.useState(request.summary ?? "");
+  const pathname = usePathname();
+
+  // "New" mode: request is null until the author explicitly saves/submits.
+  // existingId is fixed for the life of this instance; newId is filled the
+  // first (and only) time we lazily create the row. effectiveId is whichever
+  // one we have — null while a brand-new request is still unsaved.
+  const existingId = request?.id ?? null;
+  const [newId, setNewId] = React.useState<string | null>(null);
+  const effectiveId = existingId ?? newId;
+
+  // In new mode there's no row yet, so treat the state as a draft.
+  const isDraft = !request || request.state === "draft";
+
+  // Unsaved-changes flag. Set true by every input handler; cleared after a
+  // successful save/submit. Drives the beforeunload + in-app navigation guards.
+  const [dirty, setDirty] = React.useState(false);
+
+  // Create the backing draft row AT MOST ONCE per form instance. The first call
+  // inserts a row and remembers its id via newId; every later call (including
+  // the "Submit anyway" path after a soft-confirm) sees effectiveId already set
+  // and returns it without calling createDraft again.
+  async function ensureId(): Promise<string> {
+    if (effectiveId) return effectiveId;
+    const { id } = await createDraft();
+    setNewId(id);
+    return id;
+  }
+
+  const [title, setTitle] = React.useState(request?.title ?? "");
+  const [summary, setSummary] = React.useState(request?.summary ?? "");
   const [productId, setProductId] = React.useState<string | null>(
-    request.product_id ?? null
+    request?.product_id ?? null
   );
 
   // Fields are the SELECTED workstream's template. Seeded from the server for
@@ -169,7 +201,7 @@ export function RequestForm({
     };
   }, [productId]);
   const [deadline, setDeadline] = React.useState<string>(
-    request.deadline ?? ""
+    request?.deadline ?? ""
   );
 
   // Per-(field, type) values keyed by `${field_id}::${type}`.
@@ -249,6 +281,12 @@ export function RequestForm({
     missing: { id: string; label: string }[];
   }>({ open: false, missing: [] });
 
+  // In-app navigation guard: the href a captured anchor click was headed to,
+  // held while the "Save this draft?" dialog asks what to do.
+  const [pendingHref, setPendingHref] = React.useState<string | null>(null);
+  const [leaveModalOpen, setLeaveModalOpen] = React.useState(false);
+  const [leaving, setLeaving] = React.useState(false);
+
   // Dependent teams: kept as a Set for O(1) membership checks when rendering
   // the chip list and filtering the "Add team" dropdown. Mutates via the
   // existing addTeamTag / removeTeamTag server actions — not through saveDraft.
@@ -277,8 +315,12 @@ export function RequestForm({
   );
 
   function addTeam(teamId: string) {
+    // The picker is only rendered once a row exists, but guard anyway so the
+    // handler is a no-op while brand-new/unsaved.
+    if (!effectiveId) return;
     if (taggedTeamIds.has(teamId)) return;
     const team = teamsById.get(teamId);
+    setDirty(true);
     // Optimistic update so the chip appears immediately; rollback on failure.
     setTaggedTeamIds((prev) => {
       const next = new Set(prev);
@@ -288,7 +330,7 @@ export function RequestForm({
     setPendingTeamSelection(null);
     startTeamTagTransition(async () => {
       try {
-        await addTeamTag(request.id, teamId);
+        await addTeamTag(effectiveId, teamId);
         toast.success(`Tagged team ${team?.name ?? ""}`.trim());
         router.refresh();
       } catch (err) {
@@ -305,7 +347,9 @@ export function RequestForm({
   }
 
   function removeTeam(teamId: string) {
+    if (!effectiveId) return;
     const team = teamsById.get(teamId);
+    setDirty(true);
     setTaggedTeamIds((prev) => {
       const next = new Set(prev);
       next.delete(teamId);
@@ -313,7 +357,7 @@ export function RequestForm({
     });
     startTeamTagTransition(async () => {
       try {
-        await removeTeamTag(request.id, teamId);
+        await removeTeamTag(effectiveId, teamId);
         toast.success(`Untagged team ${team?.name ?? ""}`.trim());
         router.refresh();
       } catch (err) {
@@ -356,11 +400,19 @@ export function RequestForm({
   function onSave() {
     startTransition(async () => {
       try {
-        await saveDraft(request.id, buildFormState());
-        toast.success(
-          request.state === "draft" ? "Draft saved" : "Request updated"
-        );
-        router.refresh();
+        // Capture brand-new-ness BEFORE ensureId creates the row: a request is
+        // brand-new when it arrived without an existing id.
+        const brandNew = !existingId;
+        const id = await ensureId();
+        await saveDraft(id, buildFormState());
+        setDirty(false);
+        if (brandNew) {
+          // The draft now exists — move into the normal edit route for it.
+          router.push(`/requests/${id}/edit`);
+        } else {
+          toast.success(isDraft ? "Draft saved" : "Request updated");
+          router.refresh();
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : "Could not save";
         toast.error(message);
@@ -371,32 +423,130 @@ export function RequestForm({
   function doSubmit(force: boolean) {
     startTransition(async () => {
       try {
+        const brandNew = !existingId;
+        // ensureId is idempotent: on the "Submit anyway" (force) path the row
+        // was already created by the first doSubmit call, so this returns the
+        // same id and never creates a second draft.
+        const id = await ensureId();
         const result: SubmitResult = await submitRequest(
-          request.id,
+          id,
           buildFormState(),
           { force }
         );
         if (result.ok) {
+          setDirty(false);
           toast.success("Request submitted — you can still edit anytime");
           setSoftModal({ open: false, missing: [] });
-          // Stay on the edit page so the user feels they still own the
-          // request post-submission. The Submit button will disappear on
-          // re-render (canSubmit becomes false for non-draft), but Save
-          // and all field inputs remain usable.
-          router.refresh();
+          if (brandNew) {
+            // A freshly-composed request lands on its detail page.
+            router.push(`/requests/${id}`);
+          } else {
+            // Stay on the edit page so the user feels they still own the
+            // request post-submission. The Submit button will disappear on
+            // re-render (canSubmit becomes false for non-draft), but Save
+            // and all field inputs remain usable.
+            router.refresh();
+          }
           return;
         }
         if (result.kind === "hard") {
           toast.error(
             `Required: ${result.missing.map((m) => m.label).join(", ")}`
           );
+          // The draft was saved by submitRequest before it failed validation —
+          // send a brand-new one to its edit page so the author can fix it.
+          if (brandNew) {
+            router.push(`/requests/${id}/edit`);
+          }
           return;
         }
-        // soft
+        // soft — the row already exists (ensureId ran); confirm to force-submit.
         setSoftModal({ open: true, missing: result.missing });
       } catch (err) {
         const message = err instanceof Error ? err.message : "Could not submit";
         toast.error(message);
+      }
+    });
+  }
+
+  // Save path used by the "Save this draft?" navigation guard. Same lazy-create
+  // + persist as onSave, but it never redirects — the caller pushes to the
+  // pending destination once the save resolves.
+  async function saveForLeave(): Promise<void> {
+    const id = await ensureId();
+    await saveDraft(id, buildFormState());
+  }
+
+  // Warn on tab close / refresh while there are unsaved changes. Only attached
+  // while dirty so it never nags once everything's saved.
+  React.useEffect(() => {
+    if (!dirty) return;
+    function onBeforeUnload(e: BeforeUnloadEvent) {
+      e.preventDefault();
+      e.returnValue = "";
+    }
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [dirty]);
+
+  // In-app navigation guard. A document-level capture click listener (active
+  // only while dirty) intercepts internal anchor clicks and opens the "Save
+  // this draft?" dialog instead of letting the navigation proceed. It is kept
+  // deliberately narrow so it never blocks the form's own buttons — it only
+  // reacts to <a href="…"> elements.
+  React.useEffect(() => {
+    if (!dirty) return;
+    function onClickCapture(e: MouseEvent) {
+      // Respect anything already handled, non-primary clicks, and
+      // modifier-clicks (open-in-new-tab, download, etc.).
+      if (e.defaultPrevented) return;
+      if (e.button !== 0) return;
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const target = e.target as Element | null;
+      const anchor = target?.closest?.("a[href]") as HTMLAnchorElement | null;
+      if (!anchor) return;
+      if (anchor.target === "_blank") return;
+      const href = anchor.getAttribute("href");
+      // Internal links only, and not a click that stays on the current page.
+      if (!href || !href.startsWith("/")) return;
+      if (href === pathname) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setPendingHref(href);
+      setLeaveModalOpen(true);
+    }
+    document.addEventListener("click", onClickCapture, true);
+    return () => document.removeEventListener("click", onClickCapture, true);
+  }, [dirty, pathname]);
+
+  function closeLeaveModal() {
+    setLeaveModalOpen(false);
+    setPendingHref(null);
+  }
+
+  function leaveWithoutSaving() {
+    const href = pendingHref;
+    setDirty(false);
+    setLeaveModalOpen(false);
+    setPendingHref(null);
+    if (href) router.push(href);
+  }
+
+  function saveThenLeave() {
+    const href = pendingHref;
+    setLeaving(true);
+    startTransition(async () => {
+      try {
+        await saveForLeave();
+        setDirty(false);
+        setLeaveModalOpen(false);
+        setPendingHref(null);
+        if (href) router.push(href);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Could not save";
+        toast.error(message);
+      } finally {
+        setLeaving(false);
       }
     });
   }
@@ -407,17 +557,21 @@ export function RequestForm({
     file: File | null
   ) {
     if (!file) return;
+    // Uploads target a storage path under the row id, so they're only reachable
+    // once a row exists. Guard so it's a no-op while brand-new/unsaved.
+    if (!effectiveId) return;
+    setDirty(true);
     const supabase = createClient();
     const k = fieldKey(field.id, type);
     setUploadingKey(k);
     try {
       const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-      const path = `${uploaderId}/${request.id}/${field.id}/${type}/${Date.now()}-${safeName}`;
+      const path = `${uploaderId}/${effectiveId}/${field.id}/${type}/${Date.now()}-${safeName}`;
       const { error } = await supabase.storage
         .from("request-attachments")
         .upload(path, file, { upsert: true });
       if (error) throw new Error(error.message);
-      await setFieldFile(request.id, field.id, type, path);
+      await setFieldFile(effectiveId, field.id, type, path);
       setFilePaths((prev) => ({ ...prev, [k]: path }));
       toast.success("File uploaded");
       router.refresh();
@@ -430,6 +584,7 @@ export function RequestForm({
   }
 
   function setValue(key: string, next: FormValue) {
+    setDirty(true);
     setFormValues((prev) => ({ ...prev, [key]: next }));
   }
 
@@ -456,7 +611,10 @@ export function RequestForm({
         <Label htmlFor="product">Workstream</Label>
         <Select
           value={productId ?? "__none__"}
-          onValueChange={(v) => setProductId(v === "__none__" ? null : v)}
+          onValueChange={(v) => {
+            setDirty(true);
+            setProductId(v === "__none__" ? null : v);
+          }}
         >
           <SelectTrigger id="product">
             <SelectValue placeholder="Pick a workstream" />
@@ -486,7 +644,10 @@ export function RequestForm({
         <Input
           id="title"
           value={title}
-          onChange={(e) => setTitle(e.target.value)}
+          onChange={(e) => {
+            setDirty(true);
+            setTitle(e.target.value);
+          }}
           placeholder="Untitled draft"
         />
       </div>
@@ -499,7 +660,10 @@ export function RequestForm({
         <Textarea
           id="summary"
           value={summary}
-          onChange={(e) => setSummary(e.target.value)}
+          onChange={(e) => {
+            setDirty(true);
+            setSummary(e.target.value);
+          }}
           placeholder="A short description of what you're asking for."
           rows={4}
         />
@@ -516,13 +680,19 @@ export function RequestForm({
             id="deadline"
             type="date"
             value={deadline}
-            onChange={(e) => setDeadline(e.target.value)}
+            onChange={(e) => {
+              setDirty(true);
+              setDeadline(e.target.value);
+            }}
             className="w-fit"
           />
           {deadline && (
             <button
               type="button"
-              onClick={() => setDeadline("")}
+              onClick={() => {
+                setDirty(true);
+                setDeadline("");
+              }}
               className="text-xs text-muted-foreground hover:text-foreground underline"
             >
               Clear
@@ -542,6 +712,12 @@ export function RequestForm({
           Tag any teams whose work this depends on. They&apos;ll see the
           request in their &quot;Tagged for me&quot; inbox.
         </p>
+        {!effectiveId ? (
+          <p className="text-sm text-muted-foreground">
+            Save the draft first to attach files or tag teams.
+          </p>
+        ) : (
+          <>
         {taggedTeamIds.size === 0 ? (
           <p className="text-sm text-muted-foreground">
             No teams tagged yet.
@@ -607,6 +783,8 @@ export function RequestForm({
               ? "No teams configured yet."
               : "All other teams are already tagged."}
           </p>
+        )}
+          </>
         )}
       </div>
       )}
@@ -745,20 +923,32 @@ export function RequestForm({
                         </Label>
                       </div>
                     )}
-                    {t === "image" && (
-                      <ScreenshotInput
-                        id={inputId}
-                        onFile={(file) => onFileChange(f, t, file)}
-                        uploading={uploadingKey === k}
-                        previewUrl={
-                          filePaths[k]
-                            ? signedUrls?.[filePaths[k] as string] ?? null
-                            : null
-                        }
-                        currentFilename={filePaths[k]?.split("/").pop() ?? null}
-                      />
-                    )}
-                    {t === "file" && (
+                    {t === "image" &&
+                      (!effectiveId ? (
+                        <p className="text-xs text-muted-foreground">
+                          Save the draft first to attach files or tag teams.
+                        </p>
+                      ) : (
+                        <ScreenshotInput
+                          id={inputId}
+                          onFile={(file) => onFileChange(f, t, file)}
+                          uploading={uploadingKey === k}
+                          previewUrl={
+                            filePaths[k]
+                              ? signedUrls?.[filePaths[k] as string] ?? null
+                              : null
+                          }
+                          currentFilename={
+                            filePaths[k]?.split("/").pop() ?? null
+                          }
+                        />
+                      ))}
+                    {t === "file" &&
+                      (!effectiveId ? (
+                        <p className="text-xs text-muted-foreground">
+                          Save the draft first to attach files or tag teams.
+                        </p>
+                      ) : (
                       <div className="space-y-1.5">
                         <input
                           id={inputId}
@@ -781,7 +971,7 @@ export function RequestForm({
                           </p>
                         )}
                       </div>
-                    )}
+                      ))}
                     {t === "repo" &&
                       (f.repo_url ? (
                         <RepoActions url={f.repo_url} />
@@ -804,10 +994,10 @@ export function RequestForm({
       <div className="flex flex-wrap items-center gap-2 pt-2">
         <Button onClick={onSave} disabled={isPending} variant="outline">
           {isPending
-            ? request.state === "draft"
+            ? isDraft
               ? "Saving…"
               : "Updating…"
-            : request.state === "draft"
+            : isDraft
               ? "Save draft"
               : "Update request"}
         </Button>
@@ -823,7 +1013,7 @@ export function RequestForm({
                   : undefined
             }
           >
-            {isPending ? "Submitting…" : "Submit to product team"}
+            {isPending ? "Submitting…" : "Submit to workstream"}
           </Button>
         )}
         {canSubmit && !hasTeam && (
@@ -850,7 +1040,7 @@ export function RequestForm({
             <DialogTitle>Submit without these?</DialogTitle>
             <DialogDescription>
               The following fields are recommended but not filled in. You can
-              still submit, but the product team may ask for more detail.
+              still submit, but the workstream may ask for more detail.
             </DialogDescription>
           </DialogHeader>
           <ul className="list-disc space-y-1 pl-5 text-sm">
@@ -868,6 +1058,43 @@ export function RequestForm({
             </Button>
             <Button onClick={() => doSubmit(true)} disabled={isPending}>
               {isPending ? "Submitting…" : "Submit anyway"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={leaveModalOpen}
+        onOpenChange={(open) => {
+          // Closing via overlay / Esc behaves like Cancel — stay put.
+          if (!open) closeLeaveModal();
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Save this draft?</DialogTitle>
+            <DialogDescription>
+              You have unsaved changes. Save them before leaving, or discard
+              them and go anyway.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={closeLeaveModal}
+              disabled={leaving}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={leaveWithoutSaving}
+              disabled={leaving}
+            >
+              Leave without saving
+            </Button>
+            <Button onClick={saveThenLeave} disabled={leaving}>
+              {leaving ? "Saving…" : "Save draft"}
             </Button>
           </DialogFooter>
         </DialogContent>
