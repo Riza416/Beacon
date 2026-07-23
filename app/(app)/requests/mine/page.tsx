@@ -97,38 +97,9 @@ export default async function MineRequestsPage({ searchParams }: MinePageProps) 
         </Button>
       </header>
 
-      {tagged.length > 0 && (
-        <section className="space-y-2 rounded-2xl border border-amber-500/40 bg-amber-500/5 p-4">
-          <h2 className="flex items-center gap-2 text-sm font-semibold">
-            <MessageSquare className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-            Tagged — awaiting your reply ({tagged.length})
-          </h2>
-          <ul className="space-y-2">
-            {tagged.map((t) => (
-              <li
-                key={t.id}
-                className="rounded-md border bg-background p-3 text-sm"
-              >
-                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                  <span>from {t.from}</span>
-                  <span>·</span>
-                  <Link
-                    href={`/requests/${t.id}`}
-                    className="font-medium text-foreground hover:underline"
-                  >
-                    {t.title}
-                  </Link>
-                  <span>·</span>
-                  <LocalTime value={t.updatedAt} />
-                </div>
-                {t.summary && <p className="mt-1 line-clamp-2">{t.summary}</p>}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {authored.length === 0 ? (
+      <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+        <div className="min-w-0 flex-1 space-y-4">
+          {authored.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center gap-3 p-8 text-center sm:p-12">
             <CardTitle className="text-base">
@@ -181,8 +152,46 @@ export default async function MineRequestsPage({ searchParams }: MinePageProps) 
           ) : (
             <MyRequestsSortable initialRows={listRows} />
           )}
-        </>
-      )}
+            </>
+          )}
+        </div>
+
+        {tagged.length > 0 && (
+          <aside className="lg:w-80 lg:shrink-0">
+            <section className="space-y-2 rounded-2xl border border-amber-500/40 bg-amber-500/5 p-4 lg:sticky lg:top-6">
+              <h2 className="flex items-center gap-2 text-sm font-semibold">
+                <MessageSquare className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                Tagged — awaiting your reply ({tagged.length})
+              </h2>
+              <ul className="space-y-2">
+                {tagged.map((t) => (
+                  <li
+                    key={t.id}
+                    className="rounded-md border bg-background p-3 text-sm"
+                  >
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                      <span>from {t.from}</span>
+                      <span>·</span>
+                      <Link
+                        href={`/requests/${t.id}`}
+                        className="font-medium text-foreground hover:underline"
+                      >
+                        {t.title}
+                      </Link>
+                    </div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">
+                      <LocalTime value={t.updatedAt} />
+                    </div>
+                    {t.summary && (
+                      <p className="mt-1 line-clamp-2">{t.summary}</p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          </aside>
+        )}
+      </div>
     </div>
   );
 }
