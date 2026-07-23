@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { requireProfile } from "@/lib/auth";
 import { DemoDashboard } from "@/components/demo-dashboard";
+import { WorkstreamRequestRow } from "@/components/workstream-request-row";
 import { DEMO_COOKIE } from "@/lib/demo";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardContent } from "@/components/ui/card";
@@ -692,58 +693,25 @@ function WorkstreamsBoard({
               ) : (
                 <ol className="divide-y">
                   {rows.map((r, idx) => (
-                    <li key={r.id} className="flex items-center gap-3 p-3">
-                      <span
-                        className={cn(
-                          "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs font-semibold tabular-nums",
-                          sequenced
-                            ? "bg-primary/10 text-primary"
-                            : "bg-muted text-muted-foreground"
-                        )}
-                      >
-                        {sequenced ? idx + 1 : "–"}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <Link
-                          href={`/requests/${r.id}`}
-                          className="block truncate text-sm font-medium hover:underline"
-                          title={r.title || "Untitled draft"}
-                        >
-                          {r.title || "Untitled draft"}
-                        </Link>
-                        <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-                          {r.team && (
-                            <span className="truncate">{r.team.name}</span>
-                          )}
-                          {r.deadline &&
-                            new Date(r.deadline) < new Date() && (
-                              <span className="font-medium text-destructive">
-                                · overdue
-                              </span>
-                            )}
-                        </div>
-                      </div>
-                      {r.status ? (
-                        <span
-                          className="inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-xs"
-                          style={{
-                            backgroundColor: `${r.status.color}22`,
-                            color: r.status.color,
-                          }}
-                          title={r.status.label}
-                        >
-                          <span
-                            className="h-1.5 w-1.5 rounded-full"
-                            style={{ backgroundColor: r.status.color }}
-                          />
-                          {r.status.label}
-                        </span>
-                      ) : (
-                        <span className="shrink-0 text-xs text-muted-foreground">
-                          No status
-                        </span>
-                      )}
-                    </li>
+                    <WorkstreamRequestRow
+                      key={r.id}
+                      id={r.id}
+                      position={sequenced ? idx + 1 : null}
+                      title={r.title || "Untitled draft"}
+                      teamName={r.team?.name ?? null}
+                      status={
+                        r.status
+                          ? { label: r.status.label, color: r.status.color }
+                          : null
+                      }
+                      deadline={r.deadline}
+                      summary={r.summary}
+                      authorLabel={
+                        r.author?.full_name ?? r.author?.email ?? "Unknown"
+                      }
+                      updatedAt={r.updated_at}
+                      workstreamName={productName(productId)}
+                    />
                   ))}
                 </ol>
               )}
