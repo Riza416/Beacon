@@ -45,6 +45,38 @@ interface MyRequestsSortableProps {
   initialRows: MyRequestRow[];
 }
 
+const NO_WORKSTREAM = "__none__";
+
+interface RowGroup {
+  key: string;
+  name: string;
+  rows: MyRequestRow[];
+}
+
+/**
+ * Bucket rows by workstream (product), preserving each row's incoming order
+ * within its bucket (the page hands them over priority-sorted). Group display
+ * order is workstream name ascending, with "No workstream" always last.
+ */
+function groupRows(rows: MyRequestRow[]): RowGroup[] {
+  const groups = new Map<string, RowGroup>();
+  for (const r of rows) {
+    const key = r.product?.id ?? NO_WORKSTREAM;
+    const g = groups.get(key) ?? {
+      key,
+      name: r.product?.name ?? "No workstream",
+      rows: [],
+    };
+    g.rows.push(r);
+    groups.set(key, g);
+  }
+  return [...groups.values()].sort((a, b) => {
+    if (a.key === NO_WORKSTREAM) return 1;
+    if (b.key === NO_WORKSTREAM) return -1;
+    return a.name.localeCompare(b.name);
+  });
+}
+
 export function MyRequestsSortable({ initialRows }: MyRequestsSortableProps) {
   const router = useRouter();
   const [rows, setRows] = React.useState<MyRequestRow[]>(initialRows);
@@ -65,25 +97,39 @@ export function MyRequestsSortable({ initialRows }: MyRequestsSortableProps) {
     })
   );
 
-  function onDragEnd(event: DragEndEvent) {
+  // Reorder happens WITHIN a single workstream group. We arrayMove inside that
+  // group, then rebuild the FULL ordered id list as the concatenation of every
+  // group's rows in group display order (with the reordered group swapped in).
+  // Persisting that full list keeps each request's global `priority` (= its
+  // index) consistent with the grouped display the user sees.
+  function handleDragEnd(groupKey: string, event: DragEndEvent) {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
-    const oldIndex = rows.findIndex((r) => r.id === active.id);
-    const newIndex = rows.findIndex((r) => r.id === over.id);
+    const groups = groupRows(rows);
+    const target = groups.find((g) => g.key === groupKey);
+    if (!target) return;
+
+    const oldIndex = target.rows.findIndex((r) => r.id === active.id);
+    const newIndex = target.rows.findIndex((r) => r.id === over.id);
     if (oldIndex < 0 || newIndex < 0) return;
 
-    const next = arrayMove(rows, oldIndex, newIndex);
-    setRows(next);
+    const reordered = arrayMove(target.rows, oldIndex, newIndex);
+    const newFullList = groups.flatMap((g) =>
+      g.key === groupKey ? reordered : g.rows
+    );
 
-    const orderedIds = next.map((r) => r.id);
+    const prev = rows;
+    setRows(newFullList);
+
+    const fullIds = newFullList.map((r) => r.id);
     startTransition(async () => {
       try {
-        await reorderMineFull(orderedIds);
+        await reorderMineFull(fullIds);
         router.refresh();
       } catch (err) {
         // Roll back optimistic update on failure.
-        setRows(rows);
+        setRows(prev);
         const message =
           err instanceof Error ? err.message : "Could not reorder";
         toast.error(message);
@@ -91,29 +137,41 @@ export function MyRequestsSortable({ initialRows }: MyRequestsSortableProps) {
     });
   }
 
+  const groups = groupRows(rows);
+
   return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={closestCenter}
-      onDragEnd={onDragEnd}
+    <div
+      className={cn("space-y-6", isPending && "pointer-events-none opacity-90")}
+      aria-busy={isPending}
     >
-      <SortableContext
-        items={rows.map((r) => r.id)}
-        strategy={verticalListSortingStrategy}
-      >
-        <div
-          className={cn(
-            "grid gap-3",
-            isPending && "pointer-events-none opacity-90"
-          )}
-          aria-busy={isPending}
-        >
-          {rows.map((r) => (
-            <SortableRow key={r.id} row={r} />
-          ))}
-        </div>
-      </SortableContext>
-    </DndContext>
+      {groups.map((group) => (
+        <section key={group.key} className="space-y-2">
+          <div className="flex items-center gap-2 px-1">
+            <Layers className="h-3.5 w-3.5 text-muted-foreground" />
+            <h3 className="text-sm font-semibold">{group.name}</h3>
+            <span className="text-xs text-muted-foreground">
+              {group.rows.length}
+            </span>
+          </div>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={(event) => handleDragEnd(group.key, event)}
+          >
+            <SortableContext
+              items={group.rows.map((r) => r.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              <div className="grid gap-3">
+                {group.rows.map((r) => (
+                  <SortableRow key={r.id} row={r} />
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
+        </section>
+      ))}
+    </div>
   );
 }
 

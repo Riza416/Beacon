@@ -16,6 +16,7 @@ import {
 } from "@/components/my-requests-by-workstream";
 import { HideDoneToggle } from "@/components/hide-done-toggle";
 import { LocalTime } from "@/components/local-time";
+import { type SnapshotField } from "@/components/workstream-request-row";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -35,43 +36,61 @@ export default async function MineRequestsPage({ searchParams }: MinePageProps) 
 
   const supabase = await createClient();
 
+  // Authored rows carry `deadline` (a requests column); `fields` for the board
+  // snapshot are attached separately below from request_field_values.
+  type AuthoredRow = Omit<MyWorkstreamRow, "fields" | "tagged">;
+
   const { data } = await supabase
     .from("requests")
     .select(
-      "id, title, summary, state, priority, submitted_at, updated_at, notion_url, status:statuses(id, label, color, is_terminal), product:products(id, name)"
+      "id, title, summary, state, priority, submitted_at, updated_at, notion_url, deadline, status:statuses(id, label, color, is_terminal), product:products(id, name)"
     )
     .eq("author_id", profile.id)
     .order("priority", { ascending: true })
     .order("updated_at", { ascending: false })
-    .returns<MyWorkstreamRow[]>();
+    .returns<AuthoredRow[]>();
 
   const authored = data ?? [];
   const tagged = await fetchTaggedAwaitingReply(profile);
 
-  const applyHideDone = (list: MyWorkstreamRow[]) =>
-    hideDone ? list.filter((r) => !r.status?.is_terminal) : list;
+  const applyHideDone = <T extends { status: { is_terminal: boolean } | null }>(
+    list: T[]
+  ) => (hideDone ? list.filter((r) => !r.status?.is_terminal) : list);
 
-  // List view = only your own requests (you can reorder those).
+  // List view = only your own requests (you can reorder those). The sortable
+  // ignores deadline/fields, so the raw authored rows are the right shape.
   const listRows = applyHideDone(authored);
+
+  // Snapshot custom-field values for every request that can appear on the board
+  // (authored + tagged), fetched once and keyed by request id.
+  const boardRequestIds = Array.from(
+    new Set([...authored.map((r) => r.id), ...tagged.map((t) => t.id)])
+  );
+  const snapshotFields = await fetchSnapshotFields(supabase, boardRequestIds);
 
   // By-workstream view also folds in requests you're tagged on, marked so, so
   // you see them in context within their workstream column.
-  const taggedRows: MyWorkstreamRow[] = tagged.map((t) => ({
-    id: t.id,
-    title: t.title,
-    summary: t.summary,
-    state: "submitted",
-    priority: 0,
-    submitted_at: null,
-    updated_at: t.updatedAt,
-    notion_url: null,
-    status: t.status,
-    product: t.product,
-    tagged: true,
-  }));
-  const boardRows = applyHideDone([
-    ...authored.map((r) => ({ ...r, tagged: false })),
-    ...taggedRows,
+  const boardRows: MyWorkstreamRow[] = applyHideDone([
+    ...authored.map((r) => ({
+      ...r,
+      fields: snapshotFields.get(r.id) ?? [],
+      tagged: false,
+    })),
+    ...tagged.map((t) => ({
+      id: t.id,
+      title: t.title,
+      summary: t.summary,
+      state: "submitted" as const,
+      priority: 0,
+      submitted_at: null,
+      updated_at: t.updatedAt,
+      notion_url: null,
+      deadline: t.deadline,
+      status: t.status,
+      product: t.product,
+      fields: snapshotFields.get(t.id) ?? [],
+      tagged: true,
+    })),
   ]);
 
   const doneCount = authored.filter((r) => r.status?.is_terminal).length;
@@ -229,6 +248,7 @@ interface TaggedAwaitingReply {
   summary: string | null;
   from: string;
   updatedAt: string;
+  deadline: string | null;
   product: { id: string; name: string } | null;
   status: {
     id: string;
@@ -243,6 +263,7 @@ interface TaggedRequestRow {
   title: string;
   summary: string | null;
   updated_at: string;
+  deadline: string | null;
   team: { name: string } | null;
   author: { full_name: string | null; email: string | null } | null;
   product: { id: string; name: string } | null;
@@ -292,7 +313,7 @@ async function fetchTaggedAwaitingReply(profile: {
   const { data: reqs } = await supabase
     .from("requests")
     .select(
-      "id, title, summary, updated_at, " +
+      "id, title, summary, updated_at, deadline, " +
         "team:teams!requests_team_id_fkey(name), " +
         "author:profiles!requests_author_id_fkey(full_name, email), " +
         "product:products(id, name), " +
@@ -324,7 +345,70 @@ async function fetchTaggedAwaitingReply(profile: {
       summary: r.summary,
       from: r.author?.full_name ?? r.author?.email ?? r.team?.name ?? "Unknown",
       updatedAt: r.updated_at,
+      deadline: r.deadline,
       product: r.product,
       status: r.status,
     }));
+}
+
+// ---------------------------------------------------------------------------
+// Board hover-snapshot: a request's filled custom-field values (Requirements,
+// Value, …), keyed by request id. Mirrors the dashboard's helper so the
+// By-workstream board shows the same snapshot content.
+// ---------------------------------------------------------------------------
+
+function formatSnapshotValue(
+  type: string,
+  valueText: string | null
+): { text: string } | { chips: string[] } | null {
+  if (type === "multi_select") {
+    if (!valueText) return null;
+    try {
+      const arr = JSON.parse(valueText);
+      const chips = Array.isArray(arr)
+        ? arr.filter((x): x is string => typeof x === "string")
+        : [];
+      return chips.length ? { chips } : null;
+    } catch {
+      return null;
+    }
+  }
+  if (type === "checkbox") return valueText === "true" ? { text: "Yes" } : null;
+  // Files/images (no text) and the owner-set repo link aren't author content.
+  if (type === "file" || type === "image" || type === "repo") return null;
+  const t = (valueText ?? "").trim();
+  return t.length > 0 ? { text: t } : null;
+}
+
+async function fetchSnapshotFields(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  requestIds: string[]
+): Promise<Map<string, SnapshotField[]>> {
+  const map = new Map<string, SnapshotField[]>();
+  if (requestIds.length === 0) return map;
+
+  const { data } = await supabase
+    .from("request_field_values")
+    .select(
+      "request_id, field_type, value_text, definition:request_field_definitions(label)"
+    )
+    .in("request_id", requestIds)
+    .returns<
+      {
+        request_id: string;
+        field_type: string;
+        value_text: string | null;
+        definition: { label: string } | null;
+      }[]
+    >();
+
+  for (const row of data ?? []) {
+    if (!row.definition) continue;
+    const formatted = formatSnapshotValue(row.field_type, row.value_text);
+    if (!formatted) continue;
+    const arr = map.get(row.request_id) ?? [];
+    arr.push({ label: row.definition.label, ...formatted });
+    map.set(row.request_id, arr);
+  }
+  return map;
 }

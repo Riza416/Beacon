@@ -24,6 +24,8 @@ export interface WorkstreamRequestRowProps {
   /** Filled custom fields (Requirements, Value, …) for the snapshot. */
   fields: SnapshotField[];
   workstreamName: string;
+  /** Optional small badge shown on the row, e.g. "Tagged". */
+  tag?: string;
 }
 
 export function WorkstreamRequestRow({
@@ -36,6 +38,7 @@ export function WorkstreamRequestRow({
   summary,
   fields,
   workstreamName,
+  tag,
 }: WorkstreamRequestRowProps) {
   const overdue = deadline ? new Date(deadline) < new Date() : false;
   const [preview, setPreview] = React.useState<{ top: number; left: number } | null>(
@@ -96,6 +99,11 @@ export function WorkstreamRequestRow({
         </div>
       </div>
 
+      {tag && (
+        <span className="shrink-0 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">
+          {tag}
+        </span>
+      )}
       {status ? (
         <span
           className="inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-xs"

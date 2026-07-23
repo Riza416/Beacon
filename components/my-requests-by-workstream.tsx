@@ -1,11 +1,16 @@
-import Link from "next/link";
 import { Layers } from "lucide-react";
 import { Card } from "@/components/ui/card";
-import { LocalTime } from "@/components/local-time";
+import {
+  WorkstreamRequestRow,
+  type SnapshotField,
+} from "@/components/workstream-request-row";
 import type { MyRequestRow } from "@/components/my-requests-sortable";
 
 export type MyWorkstreamRow = MyRequestRow & {
   product: { id: string; name: string } | null;
+  priority: number;
+  deadline: string | null;
+  fields: SnapshotField[];
   /** True when this is a request you're tagged on (not one you authored). */
   tagged?: boolean;
 };
@@ -13,9 +18,10 @@ export type MyWorkstreamRow = MyRequestRow & {
 const NO_WORKSTREAM = "__none__";
 
 /**
- * Compact overview of the author's own requests grouped by workstream — one
- * small card per workstream (like the dashboard board), with a status-mix bar
- * and each request's status, so they can see where things stand at a glance.
+ * Overview of the author's own requests (plus ones they're tagged on) grouped
+ * by workstream — one card per workstream, laid out and behaving exactly like
+ * the dashboard's Workstreams board: a status-mix bar and the shared
+ * WorkstreamRequestRow (including its hover snapshot) for each request.
  */
 export function MyRequestsByWorkstream({ rows }: { rows: MyWorkstreamRow[] }) {
   const groups = new Map<string, { name: string; rows: MyWorkstreamRow[] }>();
@@ -36,71 +42,67 @@ export function MyRequestsByWorkstream({ rows }: { rows: MyWorkstreamRow[] }) {
 
   return (
     <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-      {ordered.map(([key, group]) => (
-        <Card key={key} className="flex flex-col">
-          <div className="flex items-center justify-between gap-2 border-b p-4">
-            <div className="flex min-w-0 items-center gap-2">
-              <Layers className="h-4 w-4 shrink-0 text-muted-foreground" />
-              <h3 className="truncate text-sm font-semibold">{group.name}</h3>
+      {ordered.map(([key, group]) => {
+        const sorted = sortGroup(group.rows);
+        return (
+          <Card key={key} className="flex flex-col">
+            <div className="flex items-center justify-between gap-2 border-b p-4">
+              <div className="flex min-w-0 items-center gap-2">
+                <Layers className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <h3 className="truncate text-sm font-semibold">{group.name}</h3>
+              </div>
+              <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
+                {group.rows.length}
+              </span>
             </div>
-            <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
-              {group.rows.length}
-            </span>
-          </div>
 
-          <StatusBar rows={group.rows} />
+            <StatusBar rows={group.rows} />
 
-          <ul className="max-h-72 flex-1 divide-y overflow-y-auto">
-            {group.rows.map((r) => (
-              <li key={r.id} className="flex items-center gap-2 p-3">
-                <div className="min-w-0 flex-1">
-                  <Link
-                    href={`/requests/${r.id}`}
-                    className="block truncate text-sm font-medium hover:underline"
+            <div className="max-h-[22rem] flex-1 overflow-y-auto">
+              <ol className="divide-y">
+                {sorted.map((r, idx) => (
+                  <WorkstreamRequestRow
+                    key={r.id}
+                    id={r.id}
+                    position={idx + 1}
                     title={r.title || "Untitled draft"}
-                  >
-                    {r.title || "Untitled draft"}
-                  </Link>
-                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                    {r.state === "draft" && "Draft · "}
-                    <LocalTime value={r.updated_at} />
-                  </p>
-                </div>
-                {r.tagged && (
-                  <span
-                    className="shrink-0 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300"
-                    title="You're tagged on this request"
-                  >
-                    Tagged
-                  </span>
-                )}
-                {r.status ? (
-                  <span
-                    className="inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-xs"
-                    style={{
-                      backgroundColor: `${r.status.color}22`,
-                      color: r.status.color,
-                    }}
-                    title={r.status.label}
-                  >
-                    <span
-                      className="h-1.5 w-1.5 rounded-full"
-                      style={{ backgroundColor: r.status.color }}
-                    />
-                    {r.status.label}
-                  </span>
-                ) : (
-                  <span className="shrink-0 text-xs text-muted-foreground">
-                    No status
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
-        </Card>
-      ))}
+                    teamName={null}
+                    status={
+                      r.status
+                        ? { label: r.status.label, color: r.status.color }
+                        : null
+                    }
+                    deadline={r.deadline}
+                    summary={r.summary}
+                    fields={r.fields}
+                    workstreamName={group.name}
+                    tag={r.tagged ? "Tagged" : undefined}
+                  />
+                ))}
+              </ol>
+            </div>
+          </Card>
+        );
+      })}
     </section>
   );
+}
+
+/**
+ * Within a workstream, authored requests come first (by priority ascending),
+ * then any tagged requests (by updated_at descending).
+ */
+function sortGroup(rows: MyWorkstreamRow[]): MyWorkstreamRow[] {
+  const authored = rows
+    .filter((r) => !r.tagged)
+    .sort((a, b) => a.priority - b.priority);
+  const tagged = rows
+    .filter((r) => r.tagged)
+    .sort(
+      (a, b) =>
+        new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+    );
+  return [...authored, ...tagged];
 }
 
 /** Thin segmented bar of the workstream's status mix (hover a segment for its count). */
