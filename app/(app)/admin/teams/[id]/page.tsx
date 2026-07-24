@@ -14,6 +14,7 @@ import {
 import type { Profile, Team } from "@/lib/types";
 import { TEAM_REQUEST_SELECT } from "@/lib/queries";
 import { LocalTime } from "@/components/local-time";
+import { HideDoneToggle } from "@/components/hide-done-toggle";
 import { EditTeamDialog } from "../_components/edit-team-dialog";
 import { AddMemberDialog } from "../_components/add-member-dialog";
 import { RemoveMemberButton } from "../_components/remove-member-button";
@@ -30,17 +31,21 @@ interface TeamRequestRow {
   team_priority: number;
   notion_url: string | null;
   updated_at: string;
-  status: { id: string; label: string; color: string } | null;
+  status: { id: string; label: string; color: string; is_terminal: boolean } | null;
   product: { id: string; name: string } | null;
   author: { full_name: string | null; email: string | null } | null;
 }
 
 export default async function TeamDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ done?: string }>;
 }) {
   const { id } = await params;
+  const { done } = await searchParams;
+  const hideDone = done === "hide";
   const supabase = await createClient();
 
   const { data: team } = await supabase
@@ -106,6 +111,19 @@ export default async function TeamDetailPage({
 
   const slackConfigured = await teamSlackConfigured(id);
 
+  // "Completed" = any request in a terminal status (Done / Won't do). Team
+  // members can hide these to declutter the active backlog.
+  const isDone = (r: TeamRequestRow) => r.status?.is_terminal === true;
+  const allRequests = requests ?? [];
+  const doneCount = allRequests.filter(isDone).length;
+  const depDoneCount = dependencyRequests.filter(isDone).length;
+  const visibleRequests = hideDone
+    ? allRequests.filter((r) => !isDone(r))
+    : allRequests;
+  const visibleDependencies = hideDone
+    ? dependencyRequests.filter((r) => !isDone(r))
+    : dependencyRequests;
+
   return (
     <div className="space-y-8">
       <header className="flex flex-wrap items-end justify-between gap-4">
@@ -128,17 +146,25 @@ export default async function TeamDetailPage({
       </header>
 
       <section className="space-y-3">
-        <h2 className="text-lg font-medium">
-          Requests ({requests?.length ?? 0})
-        </h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-lg font-medium">
+            Requests ({visibleRequests.length})
+          </h2>
+          {doneCount > 0 && <HideDoneToggle hidden={hideDone} />}
+        </div>
         <Card>
           <CardContent className="p-0">
-            {!requests || requests.length === 0 ? (
+            {allRequests.length === 0 ? (
               <div className="p-8 text-center text-sm text-muted-foreground">
                 No requests from this team yet.
               </div>
+            ) : visibleRequests.length === 0 ? (
+              <div className="p-8 text-center text-sm text-muted-foreground">
+                All {doneCount} request{doneCount === 1 ? "" : "s"} are
+                completed and hidden.
+              </div>
             ) : (
-              <RequestTable rows={requests} showPriority />
+              <RequestTable rows={visibleRequests} showPriority />
             )}
           </CardContent>
         </Card>
@@ -146,7 +172,7 @@ export default async function TeamDetailPage({
 
       <section className="space-y-3">
         <h2 className="text-lg font-medium">
-          Tagged as a dependency ({dependencyRequests.length})
+          Tagged as a dependency ({visibleDependencies.length})
         </h2>
         <p className="text-xs text-muted-foreground">
           Requests authored by other teams that list this team as an
@@ -158,8 +184,13 @@ export default async function TeamDetailPage({
               <div className="p-8 text-center text-sm text-muted-foreground">
                 No dependency tags on this team yet.
               </div>
+            ) : visibleDependencies.length === 0 ? (
+              <div className="p-8 text-center text-sm text-muted-foreground">
+                All {depDoneCount} dependency request
+                {depDoneCount === 1 ? "" : "s"} are completed and hidden.
+              </div>
             ) : (
-              <RequestTable rows={dependencyRequests} />
+              <RequestTable rows={visibleDependencies} />
             )}
           </CardContent>
         </Card>

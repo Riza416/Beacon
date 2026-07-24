@@ -22,7 +22,7 @@ export const REQUEST_DETAIL_SELECT =
 /** Compact request row for the per-team listings on the team detail page. */
 export const TEAM_REQUEST_SELECT =
   "id, title, state, team_priority, notion_url, updated_at, " +
-  "status:statuses(id, label, color), " +
+  "status:statuses(id, label, color, is_terminal), " +
   "product:products(id, name), " +
   "author:profiles!requests_author_id_fkey(full_name, email)";
 
