@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { authedAction, adminAction, canManageTeam } from "@/lib/actions/utils";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { notifyWorkstreamOwners } from "@/lib/notifications";
+import { notifyWorkstreamOwners, notifyMention } from "@/lib/notifications";
 import { resolveFieldsForProduct } from "@/lib/workstream-template";
 import * as priority from "@/lib/priority";
 import type {
@@ -532,28 +532,85 @@ export async function setFieldFile(
 
 export async function addComment(
   requestId: string,
-  body: string
+  body: string,
+  mentionedUserIds: string[] = []
 ): Promise<{ ok: true }> {
   const { supabase, profile } = await authedAction();
   const parsed = commentSchema.parse({ body });
+  const reqId = uuidSchema.parse(requestId);
 
-  // Make sure the request exists and is visible.
+  // Normalise the mention list: unique, valid uuids, never the commenter.
+  const mentioned = Array.from(new Set(mentionedUserIds))
+    .filter((id) => uuidSchema.safeParse(id).success)
+    .filter((id) => id !== profile.id);
+
+  // Make sure the request exists and is visible. Also read what we need to
+  // decide whether a mention may expand the audience of a private request.
   const { data: req, error: reqErr } = await supabase
     .from("requests")
-    .select("id")
-    .eq("id", requestId)
-    .maybeSingle<{ id: string }>();
+    .select("id, author_id, is_private")
+    .eq("id", reqId)
+    .maybeSingle<{ id: string; author_id: string; is_private: boolean }>();
   if (reqErr) throw new Error(reqErr.message);
   if (!req) throw new Error("Request not found");
 
-  const { error } = await supabase.from("comments").insert({
-    request_id: requestId,
-    author_id: profile.id,
-    body: parsed.body,
-  });
-  if (error) throw new Error(error.message);
+  const { data: comment, error } = await supabase
+    .from("comments")
+    .insert({
+      request_id: reqId,
+      author_id: profile.id,
+      body: parsed.body,
+    })
+    .select("id")
+    .single<{ id: string }>();
+  if (error || !comment) {
+    throw new Error(error?.message ?? "Could not post comment");
+  }
 
-  revalidatePath(`/requests/${requestId}`);
+  if (mentioned.length > 0) {
+    // Keep only ids that are real profiles.
+    const { data: validProfiles } = await supabase
+      .from("profiles")
+      .select("id")
+      .in("id", mentioned)
+      .returns<{ id: string }[]>();
+    const validIds = (validProfiles ?? []).map((p) => p.id);
+
+    if (validIds.length > 0) {
+      // Record the mentions on the comment (RLS: the comment's author).
+      await supabase.from("comment_mentions").upsert(
+        validIds.map((uid) => ({ comment_id: comment.id, user_id: uid })),
+        { onConflict: "comment_id,user_id", ignoreDuplicates: true }
+      );
+
+      // Pull the mentioned people onto the request so it lands in their
+      // "awaiting your reply" inbox + notification bell. Adding a collaborator
+      // grants visibility on a PRIVATE request, so only expand the audience
+      // when the commenter is entitled to: the author, an admin, or when the
+      // request is public (no visibility implication).
+      const isAuthor = req.author_id === profile.id;
+      const isAdmin = profile.role === "admin";
+      const canTagOthers = isAuthor || isAdmin || !req.is_private;
+      if (canTagOthers) {
+        const admin = createAdminClient();
+        await admin.from("request_collaborators").upsert(
+          validIds.map((uid) => ({ request_id: reqId, user_id: uid })),
+          { onConflict: "request_id,user_id", ignoreDuplicates: true }
+        );
+      }
+
+      // Best-effort email to mentioned people who can see the request.
+      await notifyMention({
+        requestId: reqId,
+        actorId: profile.id,
+        mentionedUserIds: validIds,
+      });
+    }
+  }
+
+  revalidatePath(`/requests/${reqId}`);
+  revalidatePath("/");
+  revalidatePath("/requests/tagged-for-me");
   return { ok: true };
 }
 

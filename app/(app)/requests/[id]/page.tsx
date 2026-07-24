@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { AdminControls } from "@/components/admin-controls";
 import { NotionUrlCard } from "@/components/notion-url-card";
 import { CommentForm } from "@/components/comment-form";
+import { CommentBody } from "@/components/comment-body";
 import { SubmitButton } from "@/components/submit-button";
 import {
   TagPicker,
@@ -100,6 +101,31 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
     .eq("request_id", id)
     .order("created_at", { ascending: true })
     .returns<CommentWithAuthor[]>();
+
+  // @mentions per comment → display names, for highlighting in the thread.
+  const commentIds = (comments ?? []).map((c) => c.id);
+  const mentionsByComment = new Map<string, string[]>();
+  if (commentIds.length > 0) {
+    const { data: mentionRows } = await supabase
+      .from("comment_mentions")
+      .select(
+        "comment_id, user:profiles!comment_mentions_user_id_fkey(full_name, email)"
+      )
+      .in("comment_id", commentIds)
+      .returns<
+        {
+          comment_id: string;
+          user: { full_name: string | null; email: string | null } | null;
+        }[]
+      >();
+    for (const row of mentionRows ?? []) {
+      const name = row.user?.full_name?.trim() || row.user?.email?.trim();
+      if (!name) continue;
+      const list = mentionsByComment.get(row.comment_id) ?? [];
+      list.push(name);
+      mentionsByComment.set(row.comment_id, list);
+    }
+  }
 
   // Teams that own this request's product (if any), shown next to the
   // product badge so the relationship is visible from the request.
@@ -464,12 +490,17 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
                     {c.author?.full_name ?? c.author?.email ?? "Unknown"} ·{" "}
                     <LocalTime value={c.created_at} />
                   </div>
-                  <p className="mt-1 whitespace-pre-wrap text-sm">{c.body}</p>
+                  <p className="mt-1 whitespace-pre-wrap text-sm">
+                    <CommentBody
+                      body={c.body}
+                      mentionNames={mentionsByComment.get(c.id) ?? []}
+                    />
+                  </p>
                 </li>
               ))}
             </ul>
           )}
-          <CommentForm requestId={id} />
+          <CommentForm requestId={id} people={profileRows ?? []} />
         </CardContent>
       </Card>
     </div>

@@ -86,6 +86,125 @@ export async function notifyWorkstreamOwners(opts: {
   }
 }
 
+/**
+ * Email people who were @mentioned in a comment. Best-effort and audience-safe:
+ * a recipient is only emailed if they can actually see the request (checked via
+ * the can_view_request DB function), so a mention never leaks a private request.
+ */
+export async function notifyMention(opts: {
+  requestId: string;
+  actorId: string;
+  mentionedUserIds: string[];
+}): Promise<void> {
+  try {
+    if (!emailConfigured()) return;
+    if (opts.mentionedUserIds.length === 0) return;
+    const admin = createAdminClient();
+
+    const { data: req } = await admin
+      .from("requests")
+      .select("id, title, product:products(name)")
+      .eq("id", opts.requestId)
+      .maybeSingle<{
+        id: string;
+        title: string | null;
+        product: { name: string } | null;
+      }>();
+    if (!req) return;
+
+    const { data: actor } = await admin
+      .from("profiles")
+      .select("full_name, email")
+      .eq("id", opts.actorId)
+      .maybeSingle<{ full_name: string | null; email: string | null }>();
+    const actorName =
+      actor?.full_name ?? actor?.email ?? "Someone";
+
+    const { data: people } = await admin
+      .from("profiles")
+      .select("id, email, full_name")
+      .in("id", opts.mentionedUserIds)
+      .returns<{ id: string; email: string | null; full_name: string | null }[]>();
+
+    const base = siteUrl();
+    const link = base ? `${base}/requests/${req.id}` : "";
+    const title = req.title || "Untitled request";
+    const workstream = req.product?.name ?? null;
+
+    await Promise.allSettled(
+      (people ?? [])
+        .filter((p) => p.id !== opts.actorId && p.email)
+        .map(async (p) => {
+          // Only email recipients who can actually see the request. The type
+          // generator doesn't emit DB functions, so the rpc name is cast.
+          const { data: canView } = await admin.rpc(
+            "can_view_request" as never,
+            { req_id: req.id, uid: p.id } as never
+          );
+          if (canView !== true) return;
+          const content = buildMentionContent({
+            actorName,
+            title,
+            workstream,
+            link,
+          });
+          await sendEmail({
+            to: p.email as string,
+            subject: content.subject,
+            html: content.html,
+            text: content.text,
+          });
+        })
+    );
+  } catch (err) {
+    console.error("[notifications] notifyMention failed", err);
+  }
+}
+
+function buildMentionContent(opts: {
+  actorName: string;
+  title: string;
+  workstream: string | null;
+  link: string;
+}): { subject: string; html: string; text: string } {
+  const { actorName, title, workstream, link } = opts;
+  const subject = `${actorName} mentioned you on "${title}"`;
+  const lead = `${actorName} mentioned you in a comment on a Beacon request.`;
+
+  const text = [
+    lead,
+    "",
+    `Request: ${title}`,
+    workstream ? `Workstream: ${workstream}` : null,
+    link ? `\nView it: ${link}` : null,
+    "",
+    "— Beacon",
+  ]
+    .filter((l) => l !== null)
+    .join("\n");
+
+  const button = link
+    ? `<a href="${link}" style="display:inline-block;margin-top:20px;background:#6d28d9;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600;font-size:14px;">Open request</a>`
+    : "";
+  const wsRow = workstream
+    ? `<tr><td style="padding:4px 12px 4px 0;color:#6b7280;">Workstream</td><td style="padding:4px 0;font-weight:600;">${escapeHtml(
+        workstream
+      )}</td></tr>`
+    : "";
+
+  const html = `<!-- Beacon mention -->
+<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px;color:#111827;">
+  <div style="font-size:13px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#6d28d9;">Beacon</div>
+  <h1 style="font-size:18px;margin:12px 0 4px;">${escapeHtml(title)}</h1>
+  <p style="margin:0 0 16px;color:#374151;font-size:14px;">${escapeHtml(lead)}</p>
+  <table style="border-collapse:collapse;font-size:14px;">${wsRow}</table>
+  ${button}
+  <p style="margin-top:28px;color:#9ca3af;font-size:12px;">You're receiving this because you were mentioned in a comment on Beacon.</p>
+</div>`;
+
+  return { subject, html, text };
+}
+
 /** Post the alert to each owning team's Slack channel (those with a webhook). */
 async function deliverSlack(
   admin: DB,
