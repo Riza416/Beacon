@@ -29,6 +29,8 @@ export interface WorkstreamRequestRowProps {
   tag?: string;
   /** Show a lock next to the title when the request is private. */
   isPrivate?: boolean;
+  /** Days a submitted request has waited with no response yet (null = hide). */
+  agingDays?: number | null;
 }
 
 export function WorkstreamRequestRow({
@@ -43,6 +45,7 @@ export function WorkstreamRequestRow({
   workstreamName,
   tag,
   isPrivate,
+  agingDays,
 }: WorkstreamRequestRowProps) {
   const overdue = deadline ? new Date(deadline) < new Date() : false;
   const [preview, setPreview] = React.useState<{ top: number; left: number } | null>(
@@ -94,6 +97,19 @@ export function WorkstreamRequestRow({
         </Link>
         <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
           {teamName && <span className="truncate">{teamName}</span>}
+          {typeof agingDays === "number" && agingDays >= 1 && (
+            <>
+              {teamName && <span>·</span>}
+              <span
+                className={cn(
+                  "font-medium",
+                  agingDays >= 3 ? "text-destructive" : "text-amber-600 dark:text-amber-400"
+                )}
+              >
+                submitted {agingDays}d ago · no response yet
+              </span>
+            </>
+          )}
           {deadline && (
             <>
               {teamName && <span>·</span>}

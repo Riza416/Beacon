@@ -20,6 +20,7 @@ import { AddMemberDialog } from "../_components/add-member-dialog";
 import { RemoveMemberButton } from "../_components/remove-member-button";
 import { DeleteTeamButton } from "../_components/delete-team-button";
 import { MemberRoleControls } from "../_components/member-role-controls";
+import { MemberSlackIdControls } from "../_components/member-slack-id-controls";
 import { MemberProductPermissionToggle } from "@/app/(app)/team/_components/member-product-permission-toggle";
 import { SlackWebhookCard } from "@/app/(app)/team/_components/slack-webhook-card";
 import { teamSlackConfigured } from "@/app/(app)/team/actions";
@@ -217,6 +218,7 @@ export default async function TeamDetailPage({
                     <TableHead>Name</TableHead>
                     <TableHead>Email</TableHead>
                     <TableHead>Workstreams</TableHead>
+                    <TableHead>Slack ID</TableHead>
                     <TableHead className="text-right">Role</TableHead>
                     <TableHead className="w-32 text-right">Actions</TableHead>
                   </TableRow>
@@ -246,6 +248,12 @@ export default async function TeamDetailPage({
                               canDelete={m.can_delete_products}
                             />
                           )}
+                        </TableCell>
+                        <TableCell>
+                          <MemberSlackIdControls
+                            profileId={m.id}
+                            slackUserId={m.slack_user_id}
+                          />
                         </TableCell>
                         <TableCell className="text-right">
                           <MemberRoleControls

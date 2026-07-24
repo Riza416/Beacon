@@ -671,6 +671,19 @@ function WorkstreamsBoard({
   if (orderedKeys.length === 0) {
     return <EmptyDashboardCard hasFilters={hasFilters} />;
   }
+  // A request is "awaiting first response" until the owning team moves it off
+  // its default (New) status — used to surface aging on this owner-facing board.
+  const defaultStatusId = statuses.find((s) => s.is_default)?.id ?? null;
+  const now = Date.now();
+  const agingFor = (r: RequestRowJoined): number | null => {
+    const awaiting =
+      r.state === "submitted" &&
+      (!r.status_id || r.status_id === defaultStatusId);
+    if (!awaiting || !r.submitted_at) return null;
+    return Math.floor(
+      (now - new Date(r.submitted_at).getTime()) / 86_400_000
+    );
+  };
   return (
     <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
       {orderedKeys.map((productId) => {
@@ -726,6 +739,7 @@ function WorkstreamsBoard({
                       fields={snapshotFieldsByRequest.get(r.id) ?? []}
                       workstreamName={productName(productId)}
                       isPrivate={r.is_private}
+                      agingDays={agingFor(r)}
                     />
                   ))}
                 </ol>

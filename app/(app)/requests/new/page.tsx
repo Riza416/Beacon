@@ -25,9 +25,12 @@ export default async function NewRequestPage({
   const { project: projectParam } = await searchParams;
   const supabase = await createClient();
 
-  const { data: products } = await supabase
+  const { data: productRows } = await supabase
     .from("products")
-    .select("id, name, show_deadline, show_dependent_teams")
+    .select(
+      "id, name, show_deadline, show_dependent_teams, " +
+        "owner:profiles!products_owner_id_fkey(full_name, email)"
+    )
     .order("name")
     .returns<
       {
@@ -35,8 +38,16 @@ export default async function NewRequestPage({
         name: string;
         show_deadline: boolean;
         show_dependent_teams: boolean;
+        owner: { full_name: string | null; email: string | null } | null;
       }[]
     >();
+  const products = (productRows ?? []).map((p) => ({
+    id: p.id,
+    name: p.name,
+    show_deadline: p.show_deadline,
+    show_dependent_teams: p.show_dependent_teams,
+    owner_name: p.owner?.full_name || p.owner?.email || null,
+  }));
 
   const { data: allTeams } = await supabase
     .from("teams")
@@ -85,7 +96,7 @@ export default async function NewRequestPage({
             hasTeam={Boolean(profile.team_id)}
             uploaderId={profile.id}
             signedUrls={{}}
-            products={products ?? []}
+            products={products}
             allTeams={allTeams ?? []}
             initialTaggedTeamIds={[]}
             authorTeamId={profile.team_id}

@@ -66,6 +66,8 @@ interface RequestFormProps {
     name: string;
     show_deadline: boolean;
     show_dependent_teams: boolean;
+    /** Designated point-of-contact for the workstream, if one is set. */
+    owner_name?: string | null;
   }[];
   /** All teams in the workspace, used by the dependent-teams picker below
    * the deadline field. */
@@ -652,6 +654,11 @@ export function RequestForm({
         <p className="text-xs text-muted-foreground">
           Choose the workstream first — it determines the rest of this form.
         </p>
+        {selectedProduct?.owner_name && (
+          <p className="text-xs text-muted-foreground">
+            Owner: {selectedProduct.owner_name}
+          </p>
+        )}
         {products.length === 0 && (
           <p className="text-xs text-muted-foreground">
             No workstreams configured yet — ask an admin to add some under{" "}

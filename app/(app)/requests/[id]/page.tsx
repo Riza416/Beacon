@@ -30,6 +30,7 @@ import { COMMENT_SELECT, REQUEST_DETAIL_SELECT } from "@/lib/queries";
 import { LocalTime } from "@/components/local-time";
 import { FolderKanban, Lock } from "lucide-react";
 import { VisibilityManager } from "@/components/visibility-manager";
+import { WatchControl } from "@/components/watch-control";
 import type {
   Comment,
   FieldDefinition,
@@ -191,6 +192,15 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
     .returns<{ user_id: string }[]>();
   const grantedUserIds = (grantRows ?? []).map((r) => r.user_id);
 
+  // Watchers (notified on status changes + deadline reminders).
+  const { data: watcherRows } = await supabase
+    .from("request_watchers")
+    .select("user_id")
+    .eq("request_id", id)
+    .returns<{ user_id: string }[]>();
+  const watcherIds = (watcherRows ?? []).map((r) => r.user_id);
+  const iAmWatching = watcherIds.includes(profile.id);
+
   // Clear the caller's unread state for this request. Best-effort: if the
   // call fails (e.g. brief RLS hiccup) we still want to render the page, so
   // swallow the error rather than crash the route.
@@ -345,6 +355,17 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
         </div>
       </header>
 
+      {request.decline_reason && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-sm">
+          <p className="font-medium text-amber-900 dark:text-amber-200">
+            Reason from the workstream
+          </p>
+          <p className="mt-1 whitespace-pre-wrap text-amber-900/90 dark:text-amber-100/90">
+            {request.decline_reason}
+          </p>
+        </div>
+      )}
+
       {request.summary && (
         <Card>
           <CardHeader>
@@ -441,6 +462,26 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
           currentStatusId={request.status_id}
         />
       )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Watchers</CardTitle>
+          <CardDescription>
+            Watchers get a Slack DM (or email) on status changes and deadline
+            reminders. The requester is always notified.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <WatchControl
+            requestId={id}
+            watching={iAmWatching}
+            watcherIds={watcherIds}
+            profiles={profileRows ?? []}
+            canManage={canManageTags}
+            currentUserId={profile.id}
+          />
+        </CardContent>
+      </Card>
 
       {(request.is_private || canManageTags) && (
         <Card>

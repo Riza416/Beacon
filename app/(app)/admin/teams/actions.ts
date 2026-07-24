@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { adminAction } from "@/lib/actions/utils";
+import { adminAction, authedAction, requireTeamManager } from "@/lib/actions/utils";
 
 // Postgres unique_violation
 const UNIQUE_VIOLATION = "23505";
@@ -154,5 +154,41 @@ export async function setMemberTeamAdmin(formData: FormData) {
     .eq("id", profileId);
   if (error) throw new Error(error.message);
   revalidatePath(`/admin/teams/${teamId}`);
+}
+
+/**
+ * Set (or clear) a member's Slack member ID, used for Slack DMs. Authorized to
+ * global admins and the team admin of that member's team (via requireTeamManager
+ * against the member's own team). Input is trimmed; empty → null.
+ */
+export async function setMemberSlackId(
+  profileId: string,
+  slackUserId: string | null
+): Promise<{ ok: true }> {
+  if (!profileId) throw new Error("Profile required");
+
+  // Resolve the member's team so we can authorize against it.
+  const { supabase } = await authedAction();
+  const { data: target, error: readErr } = await supabase
+    .from("profiles")
+    .select("team_id")
+    .eq("id", profileId)
+    .maybeSingle();
+  if (readErr) throw new Error(readErr.message);
+  if (!target?.team_id) throw new Error("That person isn't on a team.");
+
+  const { admin } = await requireTeamManager(target.team_id);
+
+  const trimmed = (slackUserId ?? "").trim();
+  const value = trimmed.length > 0 ? trimmed : null;
+
+  const { error } = await admin
+    .from("profiles")
+    .update({ slack_user_id: value })
+    .eq("id", profileId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath(`/admin/teams/${target.team_id}`);
+  return { ok: true };
 }
 

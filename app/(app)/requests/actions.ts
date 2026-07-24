@@ -5,7 +5,11 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { authedAction, adminAction, canManageTeam } from "@/lib/actions/utils";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { notifyWorkstreamOwners, notifyMention } from "@/lib/notifications";
+import {
+  notifyWorkstreamOwners,
+  notifyMention,
+  notifyRequestUpdate,
+} from "@/lib/notifications";
 import { resolveFieldsForProduct } from "@/lib/workstream-template";
 import * as priority from "@/lib/priority";
 import type {
@@ -616,7 +620,8 @@ export async function addComment(
 
 export async function updateRequestStatus(
   requestId: string,
-  statusId: string
+  statusId: string,
+  declineReason?: string | null
 ): Promise<{ ok: true }> {
   const { supabase, profile } = await adminAction();
 
@@ -624,31 +629,53 @@ export async function updateRequestStatus(
   // the request crosses the active/terminal boundary, re-densify its rankings.
   const { data: before } = await supabase
     .from("requests")
-    .select("status_id, team_id, product_id")
+    .select("status_id, team_id, product_id, acknowledged_at")
     .eq("id", requestId)
     .maybeSingle<{
       status_id: string | null;
       team_id: string | null;
       product_id: string | null;
+      acknowledged_at: string | null;
     }>();
+
+  const { data: sts } = await supabase
+    .from("statuses")
+    .select("id, label, is_terminal, is_default")
+    .returns<
+      { id: string; label: string; is_terminal: boolean; is_default: boolean }[]
+    >();
+  const byId = new Map((sts ?? []).map((s) => [s.id, s]));
+  const newStatus = byId.get(statusId);
+  const nowTerminal = newStatus?.is_terminal ?? false;
+  const reason =
+    nowTerminal && declineReason && declineReason.trim().length > 0
+      ? declineReason.trim()
+      : null;
+
+  const updates: RequestUpdate = { status_id: statusId };
+  // First response from the owning team: stamp acknowledged_at when the request
+  // first leaves its default (New) status, so aging/reminders can tell whether
+  // anyone has looked at it yet.
+  if (
+    !before?.acknowledged_at &&
+    newStatus &&
+    !newStatus.is_default
+  ) {
+    updates.acknowledged_at = new Date().toISOString();
+  }
+  // Record (or clear) the decline reason. Only terminal statuses carry one.
+  updates.decline_reason = nowTerminal ? reason : null;
 
   const { error } = await supabase
     .from("requests")
-    .update({ status_id: statusId })
+    .update(updates)
     .eq("id", requestId);
   if (error) throw new Error(error.message);
 
   if (before?.status_id !== statusId) {
-    const { data: sts } = await supabase
-      .from("statuses")
-      .select("id, label, is_terminal")
-      .returns<{ id: string; label: string; is_terminal: boolean }[]>();
-    const byId = new Map((sts ?? []).map((s) => [s.id, s]));
-    const newStatus = byId.get(statusId);
     const wasTerminal = before?.status_id
       ? byId.get(before.status_id)?.is_terminal ?? false
       : false;
-    const nowTerminal = newStatus?.is_terminal ?? false;
 
     // Terminal (completed) requests are excluded from the ranking. When one
     // crosses that boundary, close/open its slot so active ranks stay dense.
@@ -679,6 +706,19 @@ export async function updateRequestStatus(
         statusLabel: newStatus?.label ?? "Updated",
       },
       channels: ["slack"],
+    });
+
+    // Close the loop with the requester + watchers (Slack DM, else email). A
+    // terminal status with a reason reads as a decline; otherwise a plain
+    // status update.
+    const label = newStatus?.label ?? "Updated";
+    await notifyRequestUpdate({
+      requestId,
+      actorId: profile.id,
+      event:
+        nowTerminal && reason
+          ? { kind: "declined", statusLabel: label, reason }
+          : { kind: "status_changed", statusLabel: label },
     });
   }
 
@@ -1011,6 +1051,76 @@ export async function removeVisibilityGrant(
     .eq("user_id", uId);
   if (error) throw new Error(error.message);
 
+  revalidatePath(`/requests/${reqId}`);
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Watchers: users who get notified on status changes / deadline reminders.
+// RLS (0028) enforces who may write: anyone may watch THEMSELVES on a request
+// they can see; the author or an admin may add/remove anyone.
+// ---------------------------------------------------------------------------
+
+export async function watchRequest(requestId: string): Promise<{ ok: true }> {
+  const reqId = uuidSchema.parse(requestId);
+  const { supabase, profile } = await authedAction();
+  const { error } = await supabase
+    .from("request_watchers")
+    .upsert(
+      { request_id: reqId, user_id: profile.id },
+      { onConflict: "request_id,user_id", ignoreDuplicates: true }
+    );
+  if (error) throw new Error(error.message);
+  revalidatePath(`/requests/${reqId}`);
+  return { ok: true };
+}
+
+export async function unwatchRequest(requestId: string): Promise<{ ok: true }> {
+  const reqId = uuidSchema.parse(requestId);
+  const { supabase, profile } = await authedAction();
+  const { error } = await supabase
+    .from("request_watchers")
+    .delete()
+    .eq("request_id", reqId)
+    .eq("user_id", profile.id);
+  if (error) throw new Error(error.message);
+  revalidatePath(`/requests/${reqId}`);
+  return { ok: true };
+}
+
+export async function addWatcher(
+  requestId: string,
+  userId: string
+): Promise<{ ok: true }> {
+  const reqId = uuidSchema.parse(requestId);
+  const uId = uuidSchema.parse(userId);
+  const ctx = await authedAction();
+  await assertCanTag(reqId, ctx); // author or admin
+  const { error } = await ctx.supabase
+    .from("request_watchers")
+    .upsert(
+      { request_id: reqId, user_id: uId },
+      { onConflict: "request_id,user_id", ignoreDuplicates: true }
+    );
+  if (error) throw new Error(error.message);
+  revalidatePath(`/requests/${reqId}`);
+  return { ok: true };
+}
+
+export async function removeWatcher(
+  requestId: string,
+  userId: string
+): Promise<{ ok: true }> {
+  const reqId = uuidSchema.parse(requestId);
+  const uId = uuidSchema.parse(userId);
+  const ctx = await authedAction();
+  await assertCanTag(reqId, ctx);
+  const { error } = await ctx.supabase
+    .from("request_watchers")
+    .delete()
+    .eq("request_id", reqId)
+    .eq("user_id", uId);
+  if (error) throw new Error(error.message);
   revalidatePath(`/requests/${reqId}`);
   return { ok: true };
 }

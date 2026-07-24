@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
   Card,
@@ -52,14 +53,25 @@ export function AdminControls({
   const [pending, startTransition] = React.useTransition();
   const confirmReady = confirmText.trim().toUpperCase() === "DELETE";
 
-  function onChangeStatus(next: string) {
-    if (next === statusId) return;
+  // When moving to a terminal status we collect an optional reason (shared with
+  // the requester) before committing — e.g. why something is "Won't do".
+  const [reasonOpen, setReasonOpen] = React.useState(false);
+  const [reasonText, setReasonText] = React.useState("");
+  const [pendingStatusId, setPendingStatusId] = React.useState<string | null>(
+    null
+  );
+  const pendingStatus = statuses.find((s) => s.id === pendingStatusId) ?? null;
+
+  function commitStatus(next: string, reason: string | null) {
     const prev = statusId;
     setStatusId(next);
     startTransition(async () => {
       try {
-        await updateRequestStatus(requestId, next);
-        toast.success("Status updated");
+        await updateRequestStatus(requestId, next, reason);
+        toast.success("Status updated — the requester was notified");
+        setReasonOpen(false);
+        setReasonText("");
+        setPendingStatusId(null);
         router.refresh();
       } catch (err) {
         setStatusId(prev);
@@ -68,6 +80,19 @@ export function AdminControls({
         toast.error(message);
       }
     });
+  }
+
+  function onChangeStatus(next: string) {
+    if (next === statusId) return;
+    const target = statuses.find((s) => s.id === next);
+    // Terminal statuses open the reason dialog first; others commit directly.
+    if (target?.is_terminal) {
+      setPendingStatusId(next);
+      setReasonText("");
+      setReasonOpen(true);
+      return;
+    }
+    commitStatus(next, null);
   }
 
   function onDelete() {
@@ -168,6 +193,61 @@ export function AdminControls({
               disabled={pending || !confirmReady}
             >
               {pending ? "Deleting…" : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={reasonOpen}
+        onOpenChange={(open) => {
+          setReasonOpen(open);
+          if (!open) {
+            setReasonText("");
+            setPendingStatusId(null);
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Move to &ldquo;{pendingStatus?.label ?? "this status"}&rdquo;
+            </DialogTitle>
+            <DialogDescription>
+              Add a short reason for the requester (optional but recommended —
+              especially when declining). It&apos;s included in the notification
+              they receive.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 pt-2">
+            <Label htmlFor="decline-reason" className="sr-only">
+              Reason
+            </Label>
+            <Textarea
+              id="decline-reason"
+              autoFocus
+              value={reasonText}
+              onChange={(e) => setReasonText(e.target.value)}
+              placeholder="e.g. Out of scope for this quarter — revisit after the settlement work ships."
+              rows={3}
+            />
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setReasonOpen(false)}
+              disabled={pending}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() =>
+                pendingStatusId &&
+                commitStatus(pendingStatusId, reasonText.trim() || null)
+              }
+              disabled={pending}
+            >
+              {pending ? "Updating…" : "Update & notify"}
             </Button>
           </DialogFooter>
         </DialogContent>

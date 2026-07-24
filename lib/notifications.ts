@@ -20,14 +20,27 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { emailConfigured, escapeHtml, sendEmail } from "@/lib/email";
-import { sendSlackMessage, slackEscape } from "@/lib/slack";
+import {
+  sendSlackMessage,
+  sendSlackDm,
+  slackDmConfigured,
+  slackEscape,
+} from "@/lib/slack";
 import type { Database } from "@/lib/database.types";
 
 type DB = SupabaseClient<Database>;
 
 export type WorkstreamEvent =
   | { kind: "submitted" }
-  | { kind: "status_changed"; statusLabel: string };
+  | { kind: "status_changed"; statusLabel: string }
+  | { kind: "unacknowledged"; days: number }
+  | { kind: "deadline_soon"; deadline: string };
+
+/** Update relayed to the requester + watchers (the "your request" audience). */
+export type RequestUpdateEvent =
+  | { kind: "status_changed"; statusLabel: string }
+  | { kind: "declined"; statusLabel: string; reason: string | null }
+  | { kind: "deadline_soon"; deadline: string };
 
 interface RequestForNotify {
   id: string;
@@ -267,6 +280,172 @@ async function deliverEmail(
   );
 }
 
+/**
+ * Notify the requester + watchers about an update to THEIR request (status
+ * change, decline, upcoming deadline). Each recipient gets a Slack DM when a
+ * bot token is configured and they have a slack_user_id, otherwise an email.
+ * The actor is never notified about their own action. Best-effort.
+ */
+export async function notifyRequestUpdate(opts: {
+  requestId: string;
+  actorId: string;
+  event: RequestUpdateEvent;
+  /** Extra recipients (e.g. owning-team members for a deadline). */
+  extraUserIds?: string[];
+}): Promise<void> {
+  try {
+    const admin = createAdminClient();
+    const { data: req } = await admin
+      .from("requests")
+      .select("id, title, author_id, product:products(name)")
+      .eq("id", opts.requestId)
+      .maybeSingle<{
+        id: string;
+        title: string | null;
+        author_id: string;
+        product: { name: string } | null;
+      }>();
+    if (!req) return;
+
+    const { data: watchers } = await admin
+      .from("request_watchers")
+      .select("user_id")
+      .eq("request_id", opts.requestId)
+      .returns<{ user_id: string }[]>();
+
+    const userIds = [
+      req.author_id,
+      ...(watchers ?? []).map((w) => w.user_id),
+      ...(opts.extraUserIds ?? []),
+    ];
+    const content = buildUpdateContent(req, opts.event);
+    await deliverToUsers(admin, userIds, opts.actorId, content);
+  } catch (err) {
+    console.error("[notifications] notifyRequestUpdate failed", err);
+  }
+}
+
+/**
+ * Deliver a message to a set of users, deduped and minus the actor. Prefers a
+ * Slack DM (bot token + the user's slack_user_id); falls back to email. Every
+ * send is independent and best-effort.
+ */
+async function deliverToUsers(
+  admin: DB,
+  userIds: string[],
+  actorId: string,
+  content: { subject: string; html: string; text: string; slackText: string }
+): Promise<void> {
+  const unique = [...new Set(userIds)].filter((id) => id && id !== actorId);
+  if (unique.length === 0) return;
+
+  const { data: people } = await admin
+    .from("profiles")
+    .select("id, email, slack_user_id")
+    .in("id", unique)
+    .returns<
+      { id: string; email: string | null; slack_user_id: string | null }[]
+    >();
+  if (!people || people.length === 0) return;
+
+  const dmOk = slackDmConfigured();
+  const canEmail = emailConfigured();
+
+  await Promise.allSettled(
+    people.map(async (p) => {
+      if (dmOk && p.slack_user_id) {
+        const res = await sendSlackDm(p.slack_user_id, content.slackText);
+        if (res.sent) return; // delivered via DM; don't double-send
+      }
+      if (canEmail && p.email) {
+        await sendEmail({
+          to: p.email,
+          subject: content.subject,
+          html: content.html,
+          text: content.text,
+        });
+      }
+    })
+  );
+}
+
+function buildUpdateContent(
+  req: { id: string; title: string | null; product: { name: string } | null },
+  event: RequestUpdateEvent
+): { subject: string; html: string; text: string; slackText: string } {
+  const title = req.title || "Untitled request";
+  const workstream = req.product?.name ?? null;
+  const base = siteUrl();
+  const link = base ? `${base}/requests/${req.id}` : "";
+
+  let subject: string;
+  let lead: string;
+  let extra: { label: string; value: string } | null = null;
+  if (event.kind === "declined") {
+    subject = `Your request "${title}" was declined`;
+    lead = `Your request was moved to "${event.statusLabel}".`;
+    if (event.reason && event.reason.trim().length > 0) {
+      extra = { label: "Reason", value: event.reason.trim() };
+    }
+  } else if (event.kind === "deadline_soon") {
+    subject = `Reminder: "${title}" is due ${event.deadline}`;
+    lead = `Your request is due on ${event.deadline}.`;
+  } else {
+    subject = `Your request "${title}" is now ${event.statusLabel}`;
+    lead = `Your request moved to "${event.statusLabel}".`;
+  }
+
+  const text = [
+    lead,
+    "",
+    `Request: ${title}`,
+    workstream ? `Workstream: ${workstream}` : null,
+    extra ? `${extra.label}: ${extra.value}` : null,
+    link ? `\nView it: ${link}` : null,
+    "",
+    "— Beacon",
+  ]
+    .filter((l) => l !== null)
+    .join("\n");
+
+  const slackText = [
+    `:bell: *${slackEscape(subject)}*`,
+    slackEscape(lead),
+    extra ? `*${extra.label}:* ${slackEscape(extra.value)}` : "",
+    link ? `<${link}|Open request>` : "",
+  ]
+    .filter((l) => l.length > 0)
+    .join("\n");
+
+  const button = link
+    ? `<a href="${link}" style="display:inline-block;margin-top:20px;background:#6d28d9;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600;font-size:14px;">Open request</a>`
+    : "";
+  const rows = [
+    workstream
+      ? `<tr><td style="padding:4px 12px 4px 0;color:#6b7280;">Workstream</td><td style="padding:4px 0;font-weight:600;">${escapeHtml(
+          workstream
+        )}</td></tr>`
+      : "",
+    extra
+      ? `<tr><td style="padding:4px 12px 4px 0;color:#6b7280;">${escapeHtml(
+          extra.label
+        )}</td><td style="padding:4px 0;">${escapeHtml(extra.value)}</td></tr>`
+      : "",
+  ].join("");
+
+  const html = `<!-- Beacon request update -->
+<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px;color:#111827;">
+  <div style="font-size:13px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#6d28d9;">Beacon</div>
+  <h1 style="font-size:18px;margin:12px 0 4px;">${escapeHtml(title)}</h1>
+  <p style="margin:0 0 16px;color:#374151;font-size:14px;">${escapeHtml(lead)}</p>
+  <table style="border-collapse:collapse;font-size:14px;">${rows}</table>
+  ${button}
+  <p style="margin-top:28px;color:#9ca3af;font-size:12px;">You're receiving this because you requested or are watching this on Beacon.</p>
+</div>`;
+
+  return { subject, html, text, slackText };
+}
+
 function siteUrl(): string {
   return (process.env.NEXT_PUBLIC_SITE_URL ?? "").replace(/\/$/, "");
 }
@@ -281,14 +460,26 @@ function buildContent(
   const base = siteUrl();
   const link = base ? `${base}/requests/${req.id}` : "";
 
-  const lead =
-    event.kind === "submitted"
-      ? `A new request was submitted into ${workstream}.`
-      : `A request in ${workstream} moved to "${event.statusLabel}".`;
-  const subject =
-    event.kind === "submitted"
-      ? `New request in ${workstream}: ${title}`
-      : `${workstream} — "${title}" is now ${event.statusLabel}`;
+  let lead: string;
+  let subject: string;
+  switch (event.kind) {
+    case "submitted":
+      lead = `A new request was submitted into ${workstream}.`;
+      subject = `New request in ${workstream}: ${title}`;
+      break;
+    case "status_changed":
+      lead = `A request in ${workstream} moved to "${event.statusLabel}".`;
+      subject = `${workstream} — "${title}" is now ${event.statusLabel}`;
+      break;
+    case "unacknowledged":
+      lead = `A request in ${workstream} has been waiting ${event.days} days with no response. Please triage it.`;
+      subject = `Still awaiting triage (${event.days}d): "${title}"`;
+      break;
+    case "deadline_soon":
+      lead = `A request in ${workstream} is due on ${event.deadline}.`;
+      subject = `Due ${event.deadline}: "${title}"`;
+      break;
+  }
 
   const text = [
     lead,
@@ -297,6 +488,7 @@ function buildContent(
     `Workstream: ${workstream}`,
     `Requesting team: ${requester}`,
     event.kind === "status_changed" ? `Status: ${event.statusLabel}` : null,
+    event.kind === "deadline_soon" ? `Deadline: ${event.deadline}` : null,
     link ? `\nView it: ${link}` : null,
     "",
     "— Beacon",
