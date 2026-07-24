@@ -333,9 +333,6 @@ export function RequestForm({
   );
 
   function addTeam(teamId: string) {
-    // The picker is only rendered once a row exists, but guard anyway so the
-    // handler is a no-op while brand-new/unsaved.
-    if (!effectiveId) return;
     if (taggedTeamIds.has(teamId)) return;
     const team = teamsById.get(teamId);
     setDirty(true);
@@ -348,7 +345,10 @@ export function RequestForm({
     setPendingTeamSelection(null);
     startTeamTagTransition(async () => {
       try {
-        await addTeamTag(effectiveId, teamId);
+        // Lazily create the draft if this is a brand-new request, so tagging a
+        // team doesn't require an explicit save first.
+        const id = await ensureId();
+        await addTeamTag(id, teamId);
         toast.success(`Tagged team ${team?.name ?? ""}`.trim());
         router.refresh();
       } catch (err) {
@@ -577,21 +577,22 @@ export function RequestForm({
     file: File | null
   ) {
     if (!file) return;
-    // Uploads target a storage path under the row id, so they're only reachable
-    // once a row exists. Guard so it's a no-op while brand-new/unsaved.
-    if (!effectiveId) return;
     setDirty(true);
-    const supabase = createClient();
     const k = fieldKey(field.id, type);
     setUploadingKey(k);
     try {
+      // Uploads target a storage path under the row id. Rather than block until
+      // the author manually saves, lazily create the draft here — uploading a
+      // file is itself an explicit, intentful action.
+      const id = await ensureId();
+      const supabase = createClient();
       const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-      const path = `${uploaderId}/${effectiveId}/${field.id}/${type}/${Date.now()}-${safeName}`;
+      const path = `${uploaderId}/${id}/${field.id}/${type}/${Date.now()}-${safeName}`;
       const { error } = await supabase.storage
         .from("request-attachments")
         .upload(path, file, { upsert: true });
       if (error) throw new Error(error.message);
-      await setFieldFile(effectiveId, field.id, type, path);
+      await setFieldFile(id, field.id, type, path);
       setFilePaths((prev) => ({ ...prev, [k]: path }));
       toast.success("File uploaded");
       router.refresh();
@@ -795,12 +796,6 @@ export function RequestForm({
           Tag any teams whose work this depends on. They&apos;ll see the
           request in their &quot;Tagged for me&quot; inbox.
         </p>
-        {!effectiveId ? (
-          <p className="text-sm text-muted-foreground">
-            Save the draft first to attach files or tag teams.
-          </p>
-        ) : (
-          <>
         {taggedTeamIds.size === 0 ? (
           <p className="text-sm text-muted-foreground">
             No teams tagged yet.
@@ -866,8 +861,6 @@ export function RequestForm({
               ? "No teams configured yet."
               : "All other teams are already tagged."}
           </p>
-        )}
-          </>
         )}
       </div>
       )}
@@ -1006,32 +999,22 @@ export function RequestForm({
                         </Label>
                       </div>
                     )}
-                    {t === "image" &&
-                      (!effectiveId ? (
-                        <p className="text-xs text-muted-foreground">
-                          Save the draft first to attach files or tag teams.
-                        </p>
-                      ) : (
-                        <ScreenshotInput
-                          id={inputId}
-                          onFile={(file) => onFileChange(f, t, file)}
-                          uploading={uploadingKey === k}
-                          previewUrl={
-                            filePaths[k]
-                              ? signedUrls?.[filePaths[k] as string] ?? null
-                              : null
-                          }
-                          currentFilename={
-                            filePaths[k]?.split("/").pop() ?? null
-                          }
-                        />
-                      ))}
-                    {t === "file" &&
-                      (!effectiveId ? (
-                        <p className="text-xs text-muted-foreground">
-                          Save the draft first to attach files or tag teams.
-                        </p>
-                      ) : (
+                    {t === "image" && (
+                      <ScreenshotInput
+                        id={inputId}
+                        onFile={(file) => onFileChange(f, t, file)}
+                        uploading={uploadingKey === k}
+                        previewUrl={
+                          filePaths[k]
+                            ? signedUrls?.[filePaths[k] as string] ?? null
+                            : null
+                        }
+                        currentFilename={
+                          filePaths[k]?.split("/").pop() ?? null
+                        }
+                      />
+                    )}
+                    {t === "file" && (
                       <div className="space-y-1.5">
                         <input
                           id={inputId}
@@ -1054,7 +1037,7 @@ export function RequestForm({
                           </p>
                         )}
                       </div>
-                      ))}
+                    )}
                     {t === "repo" &&
                       (f.repo_url ? (
                         <RepoActions url={f.repo_url} />
