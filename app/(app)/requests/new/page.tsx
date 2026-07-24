@@ -13,11 +13,16 @@ import { RequestForm } from "@/components/request-form";
 
 export const dynamic = "force-dynamic";
 
-export default async function NewRequestPage() {
+export default async function NewRequestPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ project?: string }>;
+}) {
   // No draft row is created here — the form persists one lazily the first time
   // the author explicitly saves or submits (see createDraft/ensureId). This
   // means abandoned "new request" visits never leave a draft behind.
   const profile = await requireProfile();
+  const { project: projectParam } = await searchParams;
   const supabase = await createClient();
 
   const { data: products } = await supabase
@@ -37,6 +42,14 @@ export default async function NewRequestPage() {
     .from("teams")
     .select("id, name")
     .order("name", { ascending: true })
+    .returns<{ id: string; name: string }[]>();
+
+  // The caller's own projects, for the optional Project picker.
+  const { data: projects } = await supabase
+    .from("projects")
+    .select("id, name")
+    .eq("owner_id", profile.id)
+    .order("updated_at", { ascending: false })
     .returns<{ id: string; name: string }[]>();
 
   return (
@@ -76,6 +89,8 @@ export default async function NewRequestPage() {
             allTeams={allTeams ?? []}
             initialTaggedTeamIds={[]}
             authorTeamId={profile.team_id}
+            projects={projects ?? []}
+            initialProjectId={projectParam ?? null}
           />
         </CardContent>
       </Card>

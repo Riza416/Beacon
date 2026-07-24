@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   Inbox,
   SquarePen,
+  FolderKanban,
   UsersRound,
   Layers,
   Users,
@@ -60,6 +61,7 @@ export function AppSidebar({
   const items: NavItem[] = [
     { href: "/", label: "Dashboard", icon: LayoutDashboard },
     { href: "/requests/mine", label: "My requests", icon: Inbox },
+    { href: "/projects", label: "Projects", icon: FolderKanban },
     { href: "/requests/new", label: "New request", icon: SquarePen },
   ];
   if (isTeamAdmin) {

@@ -83,6 +83,30 @@ export default async function EditRequestPage({ params }: EditPageProps) {
     .returns<{ team_id: string }[]>();
   const taggedTeamIds = (teamTagRows ?? []).map((r) => r.team_id);
 
+  // The caller's own projects for the Project picker.
+  const { data: ownProjects } = await supabase
+    .from("projects")
+    .select("id, name")
+    .eq("owner_id", profile.id)
+    .order("updated_at", { ascending: false })
+    .returns<{ id: string; name: string }[]>();
+
+  // Keep the request's current project selectable/preserved even when the
+  // editor doesn't own it (e.g. an admin editing another user's request), so
+  // saving doesn't silently detach it.
+  const projects = [...(ownProjects ?? [])];
+  if (
+    request.project_id &&
+    !projects.some((p) => p.id === request.project_id)
+  ) {
+    const { data: current } = await supabase
+      .from("projects")
+      .select("id, name")
+      .eq("id", request.project_id)
+      .maybeSingle<{ id: string; name: string }>();
+    if (current) projects.unshift(current);
+  }
+
   // Sign URLs for any image values so the form can show a live preview of
   // what's already attached, not just the filename.
   const signedUrls: Record<string, string> = {};
@@ -142,6 +166,8 @@ export default async function EditRequestPage({ params }: EditPageProps) {
             allTeams={allTeams ?? []}
             initialTaggedTeamIds={taggedTeamIds}
             authorTeamId={request.team_id}
+            projects={projects}
+            initialProjectId={request.project_id}
           />
         </CardContent>
       </Card>

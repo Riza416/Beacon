@@ -24,6 +24,7 @@ type Row<T extends keyof Database["public"]["Tables"]> =
 export type Team = Row<"teams">;
 export type Product = Row<"products">;
 export type Company = Row<"companies">;
+export type Project = Row<"projects">;
 
 export type Profile = Omit<Row<"profiles">, "role"> & { role: Role };
 

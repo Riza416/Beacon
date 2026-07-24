@@ -25,6 +25,7 @@ import { RepoActions } from "@/components/repo-actions";
 import { resolveFieldsForProduct } from "@/lib/workstream-template";
 import { COMMENT_SELECT, REQUEST_DETAIL_SELECT } from "@/lib/queries";
 import { LocalTime } from "@/components/local-time";
+import { FolderKanban } from "lucide-react";
 import type {
   Comment,
   FieldDefinition,
@@ -65,6 +66,7 @@ type CommentWithAuthor = Comment & {
 type RequestWithJoins = RequestRow & {
   status: { id: string; label: string; color: string } | null;
   product: { id: string; name: string } | null;
+  project: { id: string; name: string } | null;
   author: { full_name: string | null; email: string | null } | null;
 };
 
@@ -214,6 +216,17 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
             )}
             {request.product && (
               <Badge variant="outline">{request.product.name}</Badge>
+            )}
+            {request.project && (
+              <Link href={`/projects/${request.project.id}`}>
+                <Badge
+                  variant="secondary"
+                  className="gap-1 hover:bg-secondary/70"
+                >
+                  <FolderKanban className="h-3 w-3" />
+                  {request.project.name}
+                </Badge>
+              </Link>
             )}
             {productOwnerNames.length > 0 && (
               <span className="text-xs text-muted-foreground">

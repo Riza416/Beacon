@@ -62,6 +62,8 @@ interface FormState {
   title: string;
   summary: string;
   productId: string | null;
+  /** Project this request is grouped under, or null. */
+  projectId: string | null;
   /** YYYY-MM-DD or null. */
   deadline: string | null;
   values: FormValues;
@@ -98,6 +100,7 @@ const formStateSchema = z.object({
   title: z.string().max(500),
   summary: z.string().max(20000),
   productId: z.string().uuid().nullable(),
+  projectId: z.string().uuid().nullable(),
   // Postgres `date` column. Accept YYYY-MM-DD or null.
   deadline: z
     .string()
@@ -190,10 +193,25 @@ async function persistFormState(
   ctx: Awaited<ReturnType<typeof authedAction>>
 ): Promise<void> {
   const parsed = formStateSchema.parse(state);
-  const { supabase } = ctx;
+  const { supabase, profile } = ctx;
 
   const title = parsed.title.trim() || "Untitled draft";
   const summary = parsed.summary.trim();
+
+  // If a project is chosen, it must be one the author owns (or the caller is an
+  // admin). The form only offers the caller's own projects, so this is a
+  // belt-and-braces check against a forged payload.
+  if (parsed.projectId) {
+    const { data: proj } = await supabase
+      .from("projects")
+      .select("owner_id")
+      .eq("id", parsed.projectId)
+      .maybeSingle<{ owner_id: string }>();
+    if (!proj) throw new Error("Project not found");
+    if (profile.role !== "admin" && proj.owner_id !== profile.id) {
+      throw new Error("You can only add requests to your own projects.");
+    }
+  }
 
   // Priority is per (team, product). If the product changes, this row moves
   // from one priority group to another — slot it at max+1 in the new
@@ -228,6 +246,7 @@ async function persistFormState(
     title,
     summary: summary.length === 0 ? null : summary,
     product_id: parsed.productId,
+    project_id: parsed.projectId,
     deadline: parsed.deadline,
   };
   if (nextTeamPriority !== undefined) {

@@ -75,6 +75,12 @@ interface RequestFormProps {
   /** The author's own team id, if any. Excluded from the "Add team" dropdown
    * because the author's team isn't a dependency. */
   authorTeamId: string | null;
+  /** The caller's own projects, offered in the "Project" picker so a request
+   * can be filed under one. Empty when the user has no projects. */
+  projects?: { id: string; name: string }[];
+  /** Project preselected for this request (its current project, or one passed
+   * via ?project= when composing from a project page). */
+  initialProjectId?: string | null;
 }
 
 type FormValue = string | boolean | string[];
@@ -134,6 +140,8 @@ export function RequestForm({
   allTeams,
   initialTaggedTeamIds,
   authorTeamId,
+  projects = [],
+  initialProjectId = null,
 }: RequestFormProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -168,6 +176,13 @@ export function RequestForm({
   const [summary, setSummary] = React.useState(request?.summary ?? "");
   const [productId, setProductId] = React.useState<string | null>(
     request?.product_id ?? null
+  );
+  // Only preselect a project we can actually offer (one the caller owns). A
+  // ?project= for someone else's project — or a stale one — falls back to none.
+  const [projectId, setProjectId] = React.useState<string | null>(() =>
+    initialProjectId && projects.some((p) => p.id === initialProjectId)
+      ? initialProjectId
+      : null
   );
 
   // Fields are the SELECTED workstream's template. Seeded from the server for
@@ -392,6 +407,7 @@ export function RequestForm({
       title,
       summary,
       productId,
+      projectId,
       deadline: deadline ? deadline : null,
       values: valuesPayload,
     };
@@ -638,6 +654,35 @@ export function RequestForm({
           </p>
         )}
       </div>
+
+      {projects.length > 0 && (
+        <div className="space-y-2">
+          <Label htmlFor="project">Project</Label>
+          <Select
+            value={projectId ?? "__none__"}
+            onValueChange={(v) => {
+              setDirty(true);
+              setProjectId(v === "__none__" ? null : v);
+            }}
+          >
+            <SelectTrigger id="project">
+              <SelectValue placeholder="No project" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">No project</SelectItem>
+              {projects.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            Optional. Group this request under one of your projects to track it
+            alongside related requests.
+          </p>
+        </div>
+      )}
 
       <div className="space-y-2">
         <Label htmlFor="title">Title</Label>
