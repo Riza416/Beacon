@@ -1,11 +1,15 @@
 import Link from "next/link";
 import {
   ArrowUpDown,
+  AtSign,
   Bell,
   BookOpen,
+  FolderKanban,
   Inbox,
   Layers,
   LayoutList,
+  Lock,
+  PanelLeft,
   Plus,
   ShieldCheck,
   Users,
@@ -17,14 +21,18 @@ export const dynamic = "force-dynamic";
 // /public/guide-assets and are cropped to page content (no top nav / no email).
 
 const CHAPTERS = [
-  { id: "submit", n: 1, title: "Submitting a request", icon: Plus },
-  { id: "dashboard", n: 2, title: "The dashboard", icon: LayoutList },
-  { id: "priority", n: 3, title: "Priority & status", icon: ArrowUpDown },
-  { id: "mine", n: 4, title: "Your requests", icon: Inbox },
-  { id: "templates", n: 5, title: "Workstream templates", icon: Layers },
-  { id: "teams", n: 6, title: "Teams & companies", icon: Users },
-  { id: "alerts", n: 7, title: "Notifications", icon: Bell },
-  { id: "roles", n: 8, title: "Who can do what", icon: ShieldCheck },
+  { id: "nav", n: 1, title: "Finding your way around", icon: PanelLeft },
+  { id: "submit", n: 2, title: "Submitting a request", icon: Plus },
+  { id: "dashboard", n: 3, title: "The dashboard", icon: LayoutList },
+  { id: "priority", n: 4, title: "Priority & status", icon: ArrowUpDown },
+  { id: "mine", n: 5, title: "Your requests", icon: Inbox },
+  { id: "projects", n: 6, title: "Projects", icon: FolderKanban },
+  { id: "privacy", n: 7, title: "Private requests", icon: Lock },
+  { id: "comments", n: 8, title: "Comments & mentions", icon: AtSign },
+  { id: "templates", n: 9, title: "Workstream templates", icon: Layers },
+  { id: "teams", n: 10, title: "Teams & companies", icon: Users },
+  { id: "alerts", n: 11, title: "Notifications", icon: Bell },
+  { id: "roles", n: 12, title: "Who can do what", icon: ShieldCheck },
 ] as const;
 
 function Figure({
@@ -101,8 +109,9 @@ export default function GuidePage() {
         <p className="mt-4 max-w-2xl text-base text-muted-foreground sm:text-lg">
           Beacon is where teams submit product requests, and where workstream
           owners triage and rank them. This guide covers submitting a request,
-          reading the dashboard, tracking your own asks, and — for owners and
-          admins — shaping what each workstream collects.
+          reading the dashboard, tracking your own asks, grouping related work
+          into projects, keeping sensitive requests private, and — for owners
+          and admins — shaping what each workstream collects.
         </p>
       </header>
 
@@ -136,10 +145,41 @@ export default function GuidePage() {
           <section>
             <ChapterHeading {...CHAPTERS[0]} />
             <p>
-              Click <strong>New request</strong> in the top bar. The form leads
-              with the <strong>Workstream</strong> because that choice shapes
-              everything below it — each workstream asks for its own details,
-              defined by its owner. Pick a workstream and its fields appear.
+              Beacon lives in a <strong>collapsible sidebar on the left</strong>.
+              From the top down it holds <strong>Dashboard</strong>,{" "}
+              <strong>My requests</strong>, <strong>Projects</strong>, and{" "}
+              <strong>New request</strong>; then <strong>My team</strong> (for
+              team admins) and your <strong>Workstreams</strong>; then the admin
+              tools — <strong>Teams</strong>, <strong>Workstreams</strong>,{" "}
+              <strong>Fields</strong>, and <strong>Statuses</strong>. The{" "}
+              <strong>Guide</strong> sits at the very bottom.
+            </p>
+            <ul className="space-y-2 pl-1">
+              <li>
+                <strong>Collapse it</strong> to a slim icon rail whenever you want
+                more room; expand it again from the same control.
+              </li>
+              <li>
+                <strong>The footer</strong> carries a light / dark{" "}
+                <strong>theme toggle</strong>, a{" "}
+                <strong>notifications bell</strong>, and <strong>sign-out</strong>.
+              </li>
+              <li>
+                <strong>What you see depends on your role</strong> — the admin
+                tools and <em>My team</em> only appear if you have the rights for
+                them.
+              </li>
+            </ul>
+          </section>
+
+          <section>
+            <ChapterHeading {...CHAPTERS[1]} />
+            <p>
+              Click <strong>New request</strong> in the left sidebar. The form
+              leads with the <strong>Workstream</strong> because that choice
+              shapes everything below it — each workstream asks for its own
+              details, defined by its owner. Pick a workstream and its fields
+              appear.
             </p>
             <Figure
               src="/guide-assets/g-newrequest.jpeg"
@@ -149,7 +189,7 @@ export default function GuidePage() {
             <ul className="space-y-2 pl-1">
               <li>
                 <strong>Nothing is saved until you act.</strong> Filling the form
-                creates nothing; only <strong>Save draft</strong> or{" "}
+                creates nothing; <strong>Save draft</strong> or{" "}
                 <strong>Submit to workstream</strong> writes it. Navigate away
                 with unsaved changes and Beacon offers to save first.
               </li>
@@ -159,16 +199,31 @@ export default function GuidePage() {
                 works without one).
               </li>
               <li>
-                <strong>Files &amp; dependent teams</strong> attach once the draft
-                is saved. A red <span className="text-destructive">*</span> marks
-                a required field; a <span className="text-muted-foreground">·</span>{" "}
-                dot marks a recommended one you can skip.
+                <strong>Attach a file or tag a dependent team any time.</strong>{" "}
+                The first time you do, Beacon quietly saves a draft for you — no
+                need to save first. A red{" "}
+                <span className="text-destructive">*</span> marks a required
+                field; a <span className="text-muted-foreground">·</span> dot
+                marks a recommended one you can skip.
+              </li>
+              <li>
+                <strong>Project</strong> is an optional picker — link the request
+                to a project to track it alongside related work (see{" "}
+                <a href="#projects" className="text-primary hover:underline">
+                  Projects
+                </a>
+                ). <strong>Visibility</strong> lets you make the request private
+                (see{" "}
+                <a href="#privacy" className="text-primary hover:underline">
+                  Private requests
+                </a>
+                ).
               </li>
             </ul>
           </section>
 
           <section>
-            <ChapterHeading {...CHAPTERS[1]} />
+            <ChapterHeading {...CHAPTERS[2]} />
             <p>
               The dashboard shows every in-flight request across the org, with
               two tabs — <strong>List</strong> and <strong>Workstreams</strong> —
@@ -194,7 +249,7 @@ export default function GuidePage() {
           </section>
 
           <section>
-            <ChapterHeading {...CHAPTERS[2]} />
+            <ChapterHeading {...CHAPTERS[3]} />
             <p>
               Requests carry <strong>two independent rankings</strong>, edited
               inline on the List view by the people responsible for each:
@@ -225,7 +280,7 @@ export default function GuidePage() {
           </section>
 
           <section>
-            <ChapterHeading {...CHAPTERS[3]} />
+            <ChapterHeading {...CHAPTERS[4]} />
             <p>
               <Link
                 href="/requests/mine"
@@ -238,8 +293,11 @@ export default function GuidePage() {
               reorder your personal priority) and <strong>By workstream</strong>{" "}
               (the same board as the dashboard, scoped to you). A{" "}
               <strong>Tagged — awaiting your reply</strong> sidebar surfaces
-              requests where you (or your team) were tagged and haven&apos;t
-              replied yet.
+              requests where you (or your team) were tagged — or where you were{" "}
+              <a href="#comments" className="text-primary hover:underline">
+                @mentioned
+              </a>{" "}
+              — and haven&apos;t replied yet.
             </p>
             <Figure
               src="/guide-assets/g-myrequests.jpeg"
@@ -249,7 +307,112 @@ export default function GuidePage() {
           </section>
 
           <section>
-            <ChapterHeading {...CHAPTERS[4]} audience="Workstream owners" />
+            <ChapterHeading {...CHAPTERS[5]} />
+            <p>
+              A <strong>project</strong> is a folder for related requests. Create
+              one, then file several requests under it — to different teams and
+              workstreams — so you can track the whole effort together. Open{" "}
+              <strong>Projects</strong> from the sidebar; it has two tabs,{" "}
+              <strong>My projects</strong> and <strong>All projects</strong>, and
+              a <strong>search box</strong> that matches on project name,
+              description, and owner email.
+            </p>
+            <ul className="space-y-2 pl-1">
+              <li>
+                <strong>Create with New project.</strong> Mark a project{" "}
+                <strong>Private</strong> (a lock icon shows) to make it visible
+                only to you and global admins — the requests inside keep their own
+                visibility.
+              </li>
+              <li>
+                <strong>The project page groups its requests by owning team</strong>{" "}
+                and shows a per-project request count. From here you can start a{" "}
+                <strong>New request</strong> that is pre-linked to the project,{" "}
+                <strong>attach an existing request</strong> with the picker, or{" "}
+                <strong>remove</strong> a request from the project. The owner (or
+                an admin) can edit or delete the project.
+              </li>
+              <li>
+                <strong>Every request can name a project</strong> via the optional
+                Project picker on the form, and a request&apos;s detail page shows
+                a linked-project badge.
+              </li>
+              <li>
+                <strong>Dependencies.</strong> Within a project you can mark that
+                one request <strong>depends on</strong> another (&ldquo;A depends
+                on B&rdquo; / blocked-by). Dependencies show on the project page,
+                and the project owner, the request author, or an admin can add or
+                remove them.
+              </li>
+            </ul>
+          </section>
+
+          <section>
+            <ChapterHeading {...CHAPTERS[6]} />
+            <p>
+              Requests are <strong>public by default</strong> — everyone in the
+              workspace can see them. Flip a request to <strong>Private</strong>{" "}
+              when it shouldn&apos;t be, using the <strong>Visibility</strong>{" "}
+              toggle on the form or the <strong>Who can see this</strong> card on
+              the request&apos;s detail page. Private requests carry a{" "}
+              <strong>lock badge</strong> in lists and on the detail header.
+            </p>
+            <ul className="space-y-2 pl-1">
+              <li>
+                <strong>A private request — with its comments and fields — is
+                visible only to</strong> the author, global admins, the owning
+                team(s) of its workstream, any dependency-tagged teams, and
+                specific people who&apos;ve been granted access.
+              </li>
+              <li>
+                <strong>The &ldquo;Who can see this&rdquo; card</strong> is where
+                the author or an admin adds or removes specific people by name or
+                email.
+              </li>
+            </ul>
+          </section>
+
+          <section>
+            <ChapterHeading {...CHAPTERS[7]} />
+            <p>
+              Every request has a comment thread. Type <strong>@</strong> in a
+              comment to open a <strong>people autocomplete</strong> and pick
+              someone to mention. Mentions render highlighted in the thread, and
+              the person you mention is <strong>notified and pulled onto the
+              request</strong> — they appear in the{" "}
+              <strong>Tagged — awaiting your reply</strong> inbox and the
+              notifications bell, and get an email if email is configured.
+            </p>
+            <p className="mt-3">
+              There are <strong>three ways to bring people into a request</strong>:
+            </p>
+            <ul className="space-y-2 pl-1">
+              <li>
+                <strong>Tagged for feedback</strong> — the card for asking a
+                person or team to weigh in.
+              </li>
+              <li>
+                <strong>Who can see this</strong> — grants access on a private
+                request (see{" "}
+                <a href="#privacy" className="text-primary hover:underline">
+                  Private requests
+                </a>
+                ).
+              </li>
+              <li>
+                <strong>@mentioning in a comment</strong> — pulls someone in as
+                you write.
+              </li>
+            </ul>
+            <p className="mt-4 rounded-lg border bg-muted/40 px-4 py-3 text-muted-foreground">
+              On a <strong>private</strong> request, only the author or an admin
+              can pull <em>new</em> people in through a mention; on a public
+              request anyone can.
+            </p>
+          </section>
+
+          <section>
+            <ChapterHeading {...CHAPTERS[8]} audience="Workstream owners" />
             <p>
               Each workstream decides what a request into it must include. Open
               its <strong>Template</strong> page from where you manage workstreams
@@ -283,7 +446,7 @@ export default function GuidePage() {
           </section>
 
           <section>
-            <ChapterHeading {...CHAPTERS[5]} audience="Admins" />
+            <ChapterHeading {...CHAPTERS[9]} audience="Admins" />
             <p>
               Under <strong>Teams</strong>, people are grouped into teams and
               teams into companies. Search finds a team by name, company, or a
@@ -308,7 +471,7 @@ export default function GuidePage() {
           </section>
 
           <section>
-            <ChapterHeading {...CHAPTERS[6]} />
+            <ChapterHeading {...CHAPTERS[10]} />
             <p>
               When a request is <strong>submitted</strong> into a workstream, the
               owning team is alerted on <strong>Slack</strong> (its connected
@@ -325,12 +488,12 @@ export default function GuidePage() {
           </section>
 
           <section>
-            <ChapterHeading {...CHAPTERS[7]} />
+            <ChapterHeading {...CHAPTERS[11]} />
             <div className="grid gap-4 sm:grid-cols-3">
               {[
                 {
                   role: "Member",
-                  body: "Create, save, and submit requests; edit their own; comment; reply to tags; set their personal order in My requests.",
+                  body: "Create, save, and submit requests; edit their own; make a request or project private; comment and @mention; reply to tags; create projects and group requests; set their personal order in My requests.",
                 },
                 {
                   role: "Team admin",

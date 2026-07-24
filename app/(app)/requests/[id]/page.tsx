@@ -2,6 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { isDemoOn } from "@/lib/demo";
+import { DemoRequestDetail } from "@/components/demo/demo-request-detail";
 import {
   Card,
   CardContent,
@@ -75,6 +77,13 @@ type RequestWithJoins = RequestRow & {
 export default async function RequestDetailPage({ params }: RequestPageProps) {
   const { id } = await params;
   const profile = await requireProfile();
+
+  // Demo requests use synthetic ("demo-…") ids that aren't valid uuids, so
+  // branch before touching the database.
+  if (id.startsWith("demo-") && (await isDemoOn(profile.role))) {
+    return <DemoRequestDetail id={id} />;
+  }
+
   const supabase = await createClient();
 
   const { data: request } = await supabase

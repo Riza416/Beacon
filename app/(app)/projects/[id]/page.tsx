@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Plus, Users, Layers } from "lucide-react";
+import { Plus, Users, Layers, Lock } from "lucide-react";
 import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { isDemoOn } from "@/lib/demo";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,8 @@ import { ProjectDialog } from "../_components/project-dialog";
 import { DeleteProjectButton } from "../_components/delete-project-button";
 import { AttachRequestControl } from "../_components/attach-request-control";
 import { DetachRequestButton } from "../_components/detach-request-button";
+import { RequestDependencyControl } from "../_components/request-dependency-control";
+import { DemoProjectDetail } from "@/components/demo/demo-project-detail";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +22,7 @@ interface ProjectRow {
   name: string;
   description: string | null;
   owner_id: string;
+  is_private: boolean;
   updated_at: string;
   owner: { full_name: string | null; email: string | null } | null;
 }
@@ -41,12 +45,19 @@ export default async function ProjectDetailPage({
 }) {
   const { id } = await params;
   const profile = await requireProfile();
+
+  // Demo projects use synthetic ("demo-…") ids that aren't valid uuids, so
+  // branch before touching the database.
+  if (id.startsWith("demo-") && (await isDemoOn(profile.role))) {
+    return <DemoProjectDetail id={id} />;
+  }
+
   const supabase = await createClient();
 
   const { data: project } = await supabase
     .from("projects")
     .select(
-      "id, name, description, owner_id, updated_at, " +
+      "id, name, description, owner_id, is_private, updated_at, " +
         "owner:profiles!projects_owner_id_fkey(full_name, email)"
     )
     .eq("id", id)
@@ -71,6 +82,32 @@ export default async function ProjectDetailPage({
     .returns<ProjectRequestRow[]>();
 
   const requests = requestData ?? [];
+
+  // Dependencies among the project's requests: request_id → its blockers.
+  const reqIds = requests.map((r) => r.id);
+  const titleById = new Map(requests.map((r) => [r.id, r.title]));
+  const depsByRequest = new Map<string, { id: string; title: string }[]>();
+  if (reqIds.length > 0) {
+    const { data: depRows } = await supabase
+      .from("request_dependencies")
+      .select("request_id, depends_on_id")
+      .in("request_id", reqIds)
+      .returns<{ request_id: string; depends_on_id: string }[]>();
+    for (const d of depRows ?? []) {
+      // Only surface dependencies that point at another request in THIS project.
+      if (!titleById.has(d.depends_on_id)) continue;
+      const list = depsByRequest.get(d.request_id) ?? [];
+      list.push({
+        id: d.depends_on_id,
+        title: titleById.get(d.depends_on_id) || "Untitled draft",
+      });
+      depsByRequest.set(d.request_id, list);
+    }
+  }
+  const depCandidates = requests.map((r) => ({
+    id: r.id,
+    title: r.title || "Untitled draft",
+  }));
 
   // Group by owning team so the cross-team spread of a project is visible.
   const groups = new Map<string, { name: string; rows: ProjectRequestRow[] }>();
@@ -121,9 +158,17 @@ export default async function ProjectDetailPage({
         </p>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="space-y-1">
-            <h1 className="text-2xl font-semibold tracking-tight">
-              {project.name}
-            </h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-2xl font-semibold tracking-tight">
+                {project.name}
+              </h1>
+              {project.is_private && (
+                <Badge variant="secondary" className="gap-1">
+                  <Lock className="h-3 w-3" />
+                  Private
+                </Badge>
+              )}
+            </div>
             <p className="max-w-2xl text-sm text-muted-foreground">
               {project.description || "No description."}
             </p>
@@ -147,6 +192,7 @@ export default async function ProjectDetailPage({
                     id: project.id,
                     name: project.name,
                     description: project.description,
+                    is_private: project.is_private,
                   }}
                 />
                 <DeleteProjectButton
@@ -188,48 +234,55 @@ export default async function ProjectDetailPage({
               <Card>
                 <CardContent className="divide-y p-0">
                   {g.rows.map((r) => (
-                    <div
-                      key={r.id}
-                      className="flex items-center gap-3 p-3 sm:px-4"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <Link
-                          href={`/requests/${r.id}`}
-                          className="font-medium hover:underline"
-                        >
-                          {r.title || "Untitled draft"}
-                        </Link>
-                        {r.state === "draft" && (
-                          <Badge variant="secondary" className="ml-2">
-                            Draft
+                    <div key={r.id} className="p-3 sm:px-4">
+                      <div className="flex items-center gap-3">
+                        <div className="min-w-0 flex-1">
+                          <Link
+                            href={`/requests/${r.id}`}
+                            className="font-medium hover:underline"
+                          >
+                            {r.title || "Untitled draft"}
+                          </Link>
+                          {r.state === "draft" && (
+                            <Badge variant="secondary" className="ml-2">
+                              Draft
+                            </Badge>
+                          )}
+                          <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+                            <Layers className="h-3 w-3" />
+                            {r.product?.name ?? "No workstream"}
+                            <span>·</span>
+                            <span>
+                              {r.author?.email ??
+                                r.author?.full_name ??
+                                "Unknown"}
+                            </span>
+                            <span>·</span>
+                            <LocalTime value={r.updated_at} />
+                          </p>
+                        </div>
+                        {r.status ? (
+                          <Badge
+                            style={{
+                              backgroundColor: r.status.color,
+                              color: "white",
+                            }}
+                          >
+                            {r.status.label}
                           </Badge>
-                        )}
-                        <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-                          <Layers className="h-3 w-3" />
-                          {r.product?.name ?? "No workstream"}
-                          <span>·</span>
-                          <span>
-                            {r.author?.email ??
-                              r.author?.full_name ??
-                              "Unknown"}
+                        ) : (
+                          <span className="text-xs text-muted-foreground">
+                            —
                           </span>
-                          <span>·</span>
-                          <LocalTime value={r.updated_at} />
-                        </p>
+                        )}
+                        {canManage && <DetachRequestButton requestId={r.id} />}
                       </div>
-                      {r.status ? (
-                        <Badge
-                          style={{
-                            backgroundColor: r.status.color,
-                            color: "white",
-                          }}
-                        >
-                          {r.status.label}
-                        </Badge>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
-                      {canManage && <DetachRequestButton requestId={r.id} />}
+                      <RequestDependencyControl
+                        requestId={r.id}
+                        dependencies={depsByRequest.get(r.id) ?? []}
+                        candidates={depCandidates}
+                        canManage={canManage}
+                      />
                     </div>
                   ))}
                 </CardContent>

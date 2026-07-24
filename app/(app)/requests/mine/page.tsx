@@ -2,6 +2,8 @@ import Link from "next/link";
 import { LayoutList, Layers, MessageSquare } from "lucide-react";
 import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { isDemoOn } from "@/lib/demo";
+import { DemoMyRequests } from "@/components/demo/demo-my-requests";
 import {
   Card,
   CardContent,
@@ -30,6 +32,7 @@ interface MinePageProps {
 
 export default async function MineRequestsPage({ searchParams }: MinePageProps) {
   const profile = await requireProfile();
+  if (await isDemoOn(profile.role)) return <DemoMyRequests />;
   const { view: viewParam, done } = await searchParams;
   const view = viewParam === VIEW_WORKSTREAMS ? VIEW_WORKSTREAMS : VIEW_LIST;
   const hideDone = done === "hide";

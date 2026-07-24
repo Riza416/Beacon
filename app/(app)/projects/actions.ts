@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { authedAction } from "@/lib/actions/utils";
+import { createAdminClient } from "@/lib/supabase/admin";
 import type { Profile } from "@/lib/types";
 
 const uuidSchema = z.string().uuid();
@@ -11,6 +12,7 @@ const uuidSchema = z.string().uuid();
 const projectSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(200),
   description: z.string().trim().max(5000).optional().default(""),
+  isPrivate: z.boolean().optional().default(false),
 });
 
 /** Global admin or the project's owner. */
@@ -21,6 +23,7 @@ function canManageProject(profile: Profile, ownerId: string): boolean {
 export async function createProject(input: {
   name: string;
   description?: string;
+  isPrivate?: boolean;
 }): Promise<{ id: string }> {
   const { supabase, profile } = await authedAction();
   const parsed = projectSchema.parse(input);
@@ -31,6 +34,7 @@ export async function createProject(input: {
       name: parsed.name,
       description: parsed.description.length > 0 ? parsed.description : null,
       owner_id: profile.id,
+      is_private: parsed.isPrivate,
     })
     .select("id")
     .single<{ id: string }>();
@@ -45,7 +49,7 @@ export async function createProject(input: {
 
 export async function updateProject(
   projectId: string,
-  input: { name: string; description?: string }
+  input: { name: string; description?: string; isPrivate?: boolean }
 ): Promise<{ ok: true }> {
   const id = uuidSchema.parse(projectId);
   const { supabase, profile } = await authedAction();
@@ -67,6 +71,7 @@ export async function updateProject(
     .update({
       name: parsed.name,
       description: parsed.description.length > 0 ? parsed.description : null,
+      is_private: parsed.isPrivate,
       updated_at: new Date().toISOString(),
     })
     .eq("id", id);
@@ -151,5 +156,100 @@ export async function setRequestProject(
   if (req.project_id) revalidatePath(`/projects/${req.project_id}`);
   revalidatePath(`/requests/${reqId}`);
   revalidatePath("/requests/mine");
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Request-to-request dependencies (scoped to a project). "A depends on B" means
+// A is blocked by B. Manageable by the project owner, the dependent request's
+// author, or an admin. Both requests must live in the same project.
+// ---------------------------------------------------------------------------
+
+/** Authorize a dependency change on `requestId`; returns the shared project id. */
+async function assertCanManageDeps(
+  requestId: string,
+  dependsOnId: string,
+  ctx: Awaited<ReturnType<typeof authedAction>>
+): Promise<string> {
+  const { supabase, profile } = ctx;
+  const { data: reqs } = await supabase
+    .from("requests")
+    .select("id, project_id, author_id")
+    .in("id", [requestId, dependsOnId])
+    .returns<{ id: string; project_id: string | null; author_id: string }[]>();
+  const a = reqs?.find((r) => r.id === requestId);
+  const b = reqs?.find((r) => r.id === dependsOnId);
+  if (!a || !b) throw new Error("Request not found");
+  if (!a.project_id || a.project_id !== b.project_id) {
+    throw new Error("Both requests must be in the same project.");
+  }
+
+  let ok = profile.role === "admin" || a.author_id === profile.id;
+  if (!ok) {
+    const { data: proj } = await supabase
+      .from("projects")
+      .select("owner_id")
+      .eq("id", a.project_id)
+      .maybeSingle<{ owner_id: string }>();
+    ok = proj?.owner_id === profile.id;
+  }
+  if (!ok) {
+    throw new Error("You can't change dependencies for this request.");
+  }
+  return a.project_id;
+}
+
+export async function setRequestDependency(
+  requestId: string,
+  dependsOnId: string
+): Promise<{ ok: true }> {
+  const a = uuidSchema.parse(requestId);
+  const b = uuidSchema.parse(dependsOnId);
+  if (a === b) throw new Error("A request can't depend on itself.");
+  const ctx = await authedAction();
+  const projectId = await assertCanManageDeps(a, b, ctx);
+
+  // Reject the direct reverse edge so we can't make an A⇄B cycle.
+  const { data: reverse } = await ctx.supabase
+    .from("request_dependencies")
+    .select("request_id")
+    .eq("request_id", b)
+    .eq("depends_on_id", a)
+    .maybeSingle();
+  if (reverse) {
+    throw new Error("That would create a circular dependency.");
+  }
+
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("request_dependencies")
+    .upsert(
+      { request_id: a, depends_on_id: b },
+      { onConflict: "request_id,depends_on_id", ignoreDuplicates: true }
+    );
+  if (error) throw new Error(error.message);
+
+  revalidatePath(`/projects/${projectId}`);
+  return { ok: true };
+}
+
+export async function removeRequestDependency(
+  requestId: string,
+  dependsOnId: string
+): Promise<{ ok: true }> {
+  const a = uuidSchema.parse(requestId);
+  const b = uuidSchema.parse(dependsOnId);
+  const ctx = await authedAction();
+  const projectId = await assertCanManageDeps(a, b, ctx);
+
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("request_dependencies")
+    .delete()
+    .eq("request_id", a)
+    .eq("depends_on_id", b);
+  if (error) throw new Error(error.message);
+
+  revalidatePath(`/projects/${projectId}`);
   return { ok: true };
 }

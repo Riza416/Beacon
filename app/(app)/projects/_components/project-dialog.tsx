@@ -3,8 +3,9 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Plus, Pencil } from "lucide-react";
+import { Plus, Pencil, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -21,7 +22,12 @@ import { createProject, updateProject } from "../actions";
 
 interface ProjectDialogProps {
   /** Omit to create; provide to edit an existing project. */
-  project?: { id: string; name: string; description: string | null };
+  project?: {
+    id: string;
+    name: string;
+    description: string | null;
+    is_private?: boolean;
+  };
   /** Render a compact icon-style trigger instead of the default button. */
   variant?: "default" | "outline";
 }
@@ -31,6 +37,7 @@ export function ProjectDialog({ project, variant }: ProjectDialogProps) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(project?.name ?? "");
   const [description, setDescription] = useState(project?.description ?? "");
+  const [isPrivate, setIsPrivate] = useState(project?.is_private ?? false);
   const [isPending, startTransition] = useTransition();
   const editing = Boolean(project);
 
@@ -43,12 +50,12 @@ export function ProjectDialog({ project, variant }: ProjectDialogProps) {
     startTransition(async () => {
       try {
         if (editing && project) {
-          await updateProject(project.id, { name, description });
+          await updateProject(project.id, { name, description, isPrivate });
           toast.success("Project updated");
           setOpen(false);
           router.refresh();
         } else {
-          const { id } = await createProject({ name, description });
+          const { id } = await createProject({ name, description, isPrivate });
           toast.success("Project created");
           setOpen(false);
           router.push(`/projects/${id}`);
@@ -70,6 +77,7 @@ export function ProjectDialog({ project, variant }: ProjectDialogProps) {
         if (o) {
           setName(project?.name ?? "");
           setDescription(project?.description ?? "");
+          setIsPrivate(project?.is_private ?? false);
         }
       }}
     >
@@ -115,6 +123,25 @@ export function ProjectDialog({ project, variant }: ProjectDialogProps) {
               placeholder="What is this project about? (optional)"
             />
           </div>
+          <label className="flex cursor-pointer items-start gap-3 rounded-md border p-3">
+            <Checkbox
+              checked={isPrivate}
+              onCheckedChange={(c) => setIsPrivate(c === true)}
+              className="mt-0.5"
+              aria-label="Make this project private"
+            />
+            <span className="space-y-0.5">
+              <span className="flex items-center gap-1.5 text-sm font-medium">
+                <Lock className="h-3.5 w-3.5" />
+                Private project
+              </span>
+              <span className="block text-xs text-muted-foreground">
+                {isPrivate
+                  ? "Only you and admins can see this project."
+                  : "Anyone in the workspace can see this project (default)."}
+              </span>
+            </span>
+          </label>
           <DialogFooter>
             <Button
               type="button"
