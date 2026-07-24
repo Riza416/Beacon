@@ -14,6 +14,7 @@ import { AttachRequestControl } from "../_components/attach-request-control";
 import { DetachRequestButton } from "../_components/detach-request-button";
 import { RequestDependencyControl } from "../_components/request-dependency-control";
 import { DemoProjectDetail } from "@/components/demo/demo-project-detail";
+import { orderByDependencies } from "@/lib/order-by-dependencies";
 
 export const dynamic = "force-dynamic";
 
@@ -109,9 +110,13 @@ export default async function ProjectDetailPage({
     title: r.title || "Untitled draft",
   }));
 
+  // Order so a request always sits below the ones it depends on (blockers
+  // first, dependents after). Ties keep the original order.
+  const orderedRequests = orderByDependencies(requests, depsByRequest);
+
   // Group by owning team so the cross-team spread of a project is visible.
   const groups = new Map<string, { name: string; rows: ProjectRequestRow[] }>();
-  for (const r of requests) {
+  for (const r of orderedRequests) {
     const key = r.team?.id ?? "__none__";
     const name = r.team?.name ?? "Unassigned";
     if (!groups.has(key)) groups.set(key, { name, rows: [] });

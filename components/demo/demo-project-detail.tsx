@@ -11,6 +11,7 @@ import {
   statusByLabel,
   type DemoRequest,
 } from "@/lib/demo-data";
+import { orderByDependencies } from "@/lib/order-by-dependencies";
 
 // Demo project detail — static fictional data only, no Supabase. Rendered from
 // app/(app)/projects/[id]/page.tsx for a demo-mode admin. Layout mirrors the
@@ -32,9 +33,15 @@ export function DemoProjectDetail({ id }: { id: string }) {
 
   const requests = requestsInProject(project.id);
 
+  // Sink dependents below their blockers, same as the real project page.
+  const depsByRequest = new Map(
+    requests.map((r) => [r.id, dependenciesOfRequest(r.id)])
+  );
+  const orderedRequests = orderByDependencies(requests, depsByRequest);
+
   // Group by owning team so the cross-team spread of a project is visible.
   const groups = new Map<string, { name: string; rows: DemoRequest[] }>();
-  for (const r of requests) {
+  for (const r of orderedRequests) {
     const team = getDemoTeam(r.teamId);
     const key = team?.id ?? "__none__";
     const name = team?.name ?? "Unassigned";
