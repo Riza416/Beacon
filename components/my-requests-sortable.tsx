@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { GripVertical, Layers } from "lucide-react";
+import { GripVertical, Layers, Lock } from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -37,6 +37,7 @@ export interface MyRequestRow {
   submitted_at: string | null;
   updated_at: string;
   notion_url: string | null;
+  is_private?: boolean;
   status: { id: string; label: string; color: string; is_terminal: boolean } | null;
   product: { id: string; name: string } | null;
 }
@@ -221,6 +222,12 @@ function SortableRow({ row }: SortableRowProps) {
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
+          {row.is_private && (
+            <Lock
+              className="h-3 w-3 shrink-0 text-muted-foreground"
+              aria-label="Private"
+            />
+          )}
           <Link href={href} className="truncate text-sm font-medium hover:underline">
             {row.title || "Untitled draft"}
           </Link>

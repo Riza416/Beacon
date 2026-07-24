@@ -49,6 +49,7 @@ interface RequestRowJoined {
   notion_url: string | null;
   deadline: string | null;
   author_id: string;
+  is_private: boolean;
   status: { id: string; label: string; color: string } | null;
   team: { id: string; name: string } | null;
   product: { id: string; name: string } | null;
@@ -724,6 +725,7 @@ function WorkstreamsBoard({
                       summary={r.summary}
                       fields={snapshotFieldsByRequest.get(r.id) ?? []}
                       workstreamName={productName(productId)}
+                      isPrivate={r.is_private}
                     />
                   ))}
                 </ol>

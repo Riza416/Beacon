@@ -43,7 +43,7 @@ export default async function MineRequestsPage({ searchParams }: MinePageProps) 
   const { data } = await supabase
     .from("requests")
     .select(
-      "id, title, summary, state, priority, submitted_at, updated_at, notion_url, deadline, status:statuses(id, label, color, is_terminal), product:products(id, name)"
+      "id, title, summary, state, priority, submitted_at, updated_at, notion_url, deadline, is_private, status:statuses(id, label, color, is_terminal), product:products(id, name)"
     )
     .eq("author_id", profile.id)
     .order("priority", { ascending: true })

@@ -6,7 +6,7 @@
 
 /** Joined status + team + product + author for request list/card views. */
 export const REQUEST_CARD_SELECT =
-  "id, title, summary, state, priority, team_priority, workstream_priority, team_id, product_id, status_id, submitted_at, updated_at, notion_url, deadline, author_id, " +
+  "id, title, summary, state, priority, team_priority, workstream_priority, team_id, product_id, status_id, submitted_at, updated_at, notion_url, deadline, author_id, is_private, " +
   "status:statuses(id, label, color), " +
   "team:teams!requests_team_id_fkey(id, name), " +
   "product:products(id, name), " +

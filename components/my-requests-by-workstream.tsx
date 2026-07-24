@@ -77,6 +77,7 @@ export function MyRequestsByWorkstream({ rows }: { rows: MyWorkstreamRow[] }) {
                     fields={r.fields}
                     workstreamName={group.name}
                     tag={r.tagged ? "Tagged" : undefined}
+                    isPrivate={r.is_private}
                   />
                 ))}
               </ol>

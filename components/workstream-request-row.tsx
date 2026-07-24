@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LocalTime } from "@/components/local-time";
 
@@ -26,6 +27,8 @@ export interface WorkstreamRequestRowProps {
   workstreamName: string;
   /** Optional small badge shown on the row, e.g. "Tagged". */
   tag?: string;
+  /** Show a lock next to the title when the request is private. */
+  isPrivate?: boolean;
 }
 
 export function WorkstreamRequestRow({
@@ -39,6 +42,7 @@ export function WorkstreamRequestRow({
   fields,
   workstreamName,
   tag,
+  isPrivate,
 }: WorkstreamRequestRowProps) {
   const overdue = deadline ? new Date(deadline) < new Date() : false;
   const [preview, setPreview] = React.useState<{ top: number; left: number } | null>(
@@ -80,10 +84,13 @@ export function WorkstreamRequestRow({
       <div className="min-w-0 flex-1">
         <Link
           href={`/requests/${id}`}
-          className="block truncate text-sm font-medium hover:underline"
+          className="flex items-center gap-1.5 truncate text-sm font-medium hover:underline"
           title={title}
         >
-          {title}
+          {isPrivate && (
+            <Lock className="h-3 w-3 shrink-0 text-muted-foreground" />
+          )}
+          <span className="truncate">{title}</span>
         </Link>
         <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
           {teamName && <span className="truncate">{teamName}</span>}
