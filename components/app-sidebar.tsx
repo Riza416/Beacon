@@ -13,6 +13,7 @@ import {
   Users,
   ListChecks,
   CircleDot,
+  BarChart3,
   BookOpen,
   LogOut,
   PanelLeftClose,
@@ -72,6 +73,7 @@ export function AppSidebar({
   }
   if (isAdmin) {
     items.push(
+      { href: "/admin/analytics", label: "Analytics", icon: BarChart3 },
       { href: "/admin/teams", label: "Teams", icon: Users },
       { href: "/admin/products", label: "Workstreams", icon: Layers },
       { href: "/admin/requirements", label: "Fields", icon: ListChecks },

@@ -397,6 +397,10 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
         </div>
       )}
 
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
+        {/* Main column — the request itself and the discussion. */}
+        <div className="min-w-0 space-y-6">
+
       {request.summary && (
         <Card>
           <CardHeader>
@@ -479,6 +483,38 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
         </CardContent>
       </Card>
 
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Comments</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {(comments ?? []).length === 0 ? (
+                <p className="text-sm text-muted-foreground">No comments yet.</p>
+              ) : (
+                <ul className="space-y-3">
+                  {(comments ?? []).map((c) => (
+                    <li key={c.id} className="rounded-md border bg-muted/30 p-3">
+                      <div className="text-xs text-muted-foreground">
+                        {c.author?.full_name ?? c.author?.email ?? "Unknown"} ·{" "}
+                        <LocalTime value={c.created_at} />
+                      </div>
+                      <p className="mt-1 whitespace-pre-wrap text-sm">
+                        <CommentBody
+                          body={c.body}
+                          mentionNames={mentionsByComment.get(c.id) ?? []}
+                        />
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <CommentForm requestId={id} people={profileRows ?? []} />
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Right rail — properties, people, and actions. */}
+        <aside className="space-y-4">
       {(isAdmin || isAuthor) && (
         <NotionUrlCard
           requestId={id}
@@ -576,34 +612,8 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Comments</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {(comments ?? []).length === 0 ? (
-            <p className="text-sm text-muted-foreground">No comments yet.</p>
-          ) : (
-            <ul className="space-y-3">
-              {(comments ?? []).map((c) => (
-                <li key={c.id} className="rounded-md border bg-muted/30 p-3">
-                  <div className="text-xs text-muted-foreground">
-                    {c.author?.full_name ?? c.author?.email ?? "Unknown"} ·{" "}
-                    <LocalTime value={c.created_at} />
-                  </div>
-                  <p className="mt-1 whitespace-pre-wrap text-sm">
-                    <CommentBody
-                      body={c.body}
-                      mentionNames={mentionsByComment.get(c.id) ?? []}
-                    />
-                  </p>
-                </li>
-              ))}
-            </ul>
-          )}
-          <CommentForm requestId={id} people={profileRows ?? []} />
-        </CardContent>
-      </Card>
+        </aside>
+      </div>
     </div>
   );
 }
