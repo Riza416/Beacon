@@ -174,54 +174,6 @@ export async function updateProduct(formData: FormData) {
   revalidatePath("/");
 }
 
-/**
- * Set (or clear) a workstream's designated owner — one person who is the
- * point-of-contact for it. Authorized with the same rule as any other edit on
- * this product (global admin, or a team admin / permitted member of an owning
- * team). Validates server-side that `ownerId`, when given, belongs to a
- * profile whose team is one of the product's owning teams.
- */
-export async function setProductOwner(
-  productId: string,
-  ownerId: string | null
-) {
-  if (!productId) throw new Error("Product id required");
-  const { admin } = await authorizeProductWrite({
-    capability: "edit",
-    productId,
-  });
-
-  if (ownerId) {
-    // The owner must be a member of one of the product's owning teams.
-    const { data: ownerRows, error: ownersErr } = await admin
-      .from("product_owners")
-      .select("team_id")
-      .eq("product_id", productId);
-    if (ownersErr) throw new Error(ownersErr.message);
-    const owningTeamIds = new Set((ownerRows ?? []).map((r) => r.team_id));
-
-    const { data: candidate, error: candErr } = await admin
-      .from("profiles")
-      .select("team_id")
-      .eq("id", ownerId)
-      .maybeSingle();
-    if (candErr) throw new Error(candErr.message);
-    if (!candidate?.team_id || !owningTeamIds.has(candidate.team_id)) {
-      throw new Error("The owner must be a member of an owning team.");
-    }
-  }
-
-  const { error } = await admin
-    .from("products")
-    .update({ owner_id: ownerId })
-    .eq("id", productId);
-  if (error) throw new Error(error.message);
-
-  revalidatePath("/admin/products");
-  revalidatePath("/team/products");
-  revalidatePath("/");
-}
-
 export async function deleteProduct(formData: FormData) {
   const id = String(formData.get("id") ?? "");
   if (!id) throw new Error("Product id required");

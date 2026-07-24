@@ -25,7 +25,6 @@ import {
 import type { Product, Team } from "@/lib/types";
 import { TeamProductDialog } from "./_components/team-product-dialog";
 import { DeleteTeamProductButton } from "./_components/delete-team-product-button";
-import { OwnerPicker } from "@/app/(app)/admin/products/_components/owner-picker";
 
 export default async function TeamProductsPage() {
   const profile = await requireProductManager();
@@ -96,11 +95,6 @@ export default async function TeamProductsPage() {
   const ownedIds = (ownerRows ?? []).map((r) => r.product_id);
 
   let products: Product[] = [];
-  const ownersByProduct = new Map<string, string[]>();
-  const membersByTeam = new Map<
-    string,
-    { id: string; full_name: string | null; email: string | null }[]
-  >();
   if (ownedIds.length > 0) {
     const { data } = await supabase
       .from("products")
@@ -109,45 +103,6 @@ export default async function TeamProductsPage() {
       .order("name")
       .returns<Product[]>();
     products = data ?? [];
-
-    // A product this team owns may also be owned by other teams; the owner may
-    // come from any owning team. Resolve all owning teams for these products,
-    // then their members, so the picker offers the same set the server allows.
-    const { data: allOwnerRows } = await supabase
-      .from("product_owners")
-      .select("product_id, team_id")
-      .in("product_id", ownedIds)
-      .returns<{ product_id: string; team_id: string }[]>();
-    for (const r of allOwnerRows ?? []) {
-      const list = ownersByProduct.get(r.product_id) ?? [];
-      list.push(r.team_id);
-      ownersByProduct.set(r.product_id, list);
-    }
-
-    const owningTeamIds = [
-      ...new Set((allOwnerRows ?? []).map((r) => r.team_id)),
-    ];
-    if (owningTeamIds.length > 0) {
-      const { data: profileRows } = await supabase
-        .from("profiles")
-        .select("id, full_name, email, team_id")
-        .in("team_id", owningTeamIds)
-        .order("full_name", { ascending: true })
-        .returns<
-          {
-            id: string;
-            full_name: string | null;
-            email: string | null;
-            team_id: string | null;
-          }[]
-        >();
-      for (const p of profileRows ?? []) {
-        if (!p.team_id) continue;
-        const list = membersByTeam.get(p.team_id) ?? [];
-        list.push({ id: p.id, full_name: p.full_name, email: p.email });
-        membersByTeam.set(p.team_id, list);
-      }
-    }
   }
 
   return (
@@ -179,7 +134,6 @@ export default async function TeamProductsPage() {
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Description</TableHead>
-                  {mayEdit && <TableHead>Owner</TableHead>}
                   {(mayEdit || mayDelete) && (
                     <TableHead className="w-40 text-right">Actions</TableHead>
                   )}
@@ -187,32 +141,12 @@ export default async function TeamProductsPage() {
               </TableHeader>
               <TableBody>
                 {products.map((p) => {
-                  const ownerIds = ownersByProduct.get(p.id) ?? [];
-                  const eligible = new Map<
-                    string,
-                    { id: string; full_name: string | null; email: string | null }
-                  >();
-                  for (const tid of ownerIds) {
-                    for (const m of membersByTeam.get(tid) ?? []) {
-                      eligible.set(m.id, m);
-                    }
-                  }
                   return (
                   <TableRow key={p.id}>
                     <TableCell className="font-medium">{p.name}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {p.description ?? "—"}
                     </TableCell>
-                    {mayEdit && (
-                      <TableCell>
-                        <OwnerPicker
-                          productId={p.id}
-                          currentOwnerId={p.owner_id}
-                          members={[...eligible.values()]}
-                          hasOwningTeams={ownerIds.length > 0}
-                        />
-                      </TableCell>
-                    )}
                     {(mayEdit || mayDelete) && (
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">

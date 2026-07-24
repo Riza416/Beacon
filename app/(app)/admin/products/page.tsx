@@ -14,7 +14,6 @@ import {
 import type { Product, Team } from "@/lib/types";
 import { ProductDialog } from "./_components/product-dialog";
 import { DeleteProductButton } from "./_components/delete-product-button";
-import { OwnerPicker } from "./_components/owner-picker";
 
 export default async function AdminProductsPage() {
   const supabase = await createClient();
@@ -42,26 +41,6 @@ export default async function AdminProductsPage() {
     const list = ownersByProduct.get(r.product_id) ?? [];
     list.push(r.team_id);
     ownersByProduct.set(r.product_id, list);
-  }
-
-  // Profiles grouped by team, so the owner picker can offer only members of a
-  // product's owning team(s).
-  const { data: profileRows } = await supabase
-    .from("profiles")
-    .select("id, full_name, email, team_id")
-    .order("full_name", { ascending: true })
-    .returns<
-      { id: string; full_name: string | null; email: string | null; team_id: string | null }[]
-    >();
-  const membersByTeam = new Map<
-    string,
-    { id: string; full_name: string | null; email: string | null }[]
-  >();
-  for (const p of profileRows ?? []) {
-    if (!p.team_id) continue;
-    const list = membersByTeam.get(p.team_id) ?? [];
-    list.push({ id: p.id, full_name: p.full_name, email: p.email });
-    membersByTeam.set(p.team_id, list);
   }
 
   // Per-product usage counts so admins know what's in play before deleting.
@@ -107,7 +86,6 @@ export default async function AdminProductsPage() {
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Owning teams</TableHead>
-                  <TableHead>Owner</TableHead>
                   <TableHead>Description</TableHead>
                   <TableHead className="w-24 text-right">Requests</TableHead>
                   <TableHead className="w-40 text-right">Actions</TableHead>
@@ -116,16 +94,6 @@ export default async function AdminProductsPage() {
               <TableBody>
                 {products.map((p) => {
                   const ownerIds = ownersByProduct.get(p.id) ?? [];
-                  // Eligible owners = members of any owning team (deduped).
-                  const eligible = new Map<
-                    string,
-                    { id: string; full_name: string | null; email: string | null }
-                  >();
-                  for (const tid of ownerIds) {
-                    for (const m of membersByTeam.get(tid) ?? []) {
-                      eligible.set(m.id, m);
-                    }
-                  }
                   return (
                     <TableRow key={p.id}>
                       <TableCell className="font-medium">{p.name}</TableCell>
@@ -143,14 +111,6 @@ export default async function AdminProductsPage() {
                             ))}
                           </div>
                         )}
-                      </TableCell>
-                      <TableCell>
-                        <OwnerPicker
-                          productId={p.id}
-                          currentOwnerId={p.owner_id}
-                          members={[...eligible.values()]}
-                          hasOwningTeams={ownerIds.length > 0}
-                        />
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {p.description ?? "—"}

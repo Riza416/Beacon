@@ -31,6 +31,7 @@ import { LocalTime } from "@/components/local-time";
 import { FolderKanban, Lock } from "lucide-react";
 import { VisibilityManager } from "@/components/visibility-manager";
 import { WatchControl } from "@/components/watch-control";
+import { RequestOwnerControl } from "@/components/request-owner-control";
 import type {
   Comment,
   FieldDefinition,
@@ -72,6 +73,7 @@ type RequestWithJoins = RequestRow & {
   status: { id: string; label: string; color: string } | null;
   product: { id: string; name: string } | null;
   project: { id: string; name: string } | null;
+  owner: { id: string; full_name: string | null; email: string | null } | null;
   author: { full_name: string | null; email: string | null } | null;
 };
 
@@ -138,23 +140,47 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
   }
 
   // Teams that own this request's product (if any), shown next to the
-  // product badge so the relationship is visible from the request.
+  // product badge so the relationship is visible from the request. Also the
+  // owning teams' ids, used to scope who can be the request owner.
   let productOwnerNames: string[] = [];
+  let owningTeamIds: string[] = [];
   if (request.product_id) {
     const { data: ownerRows } = await supabase
       .from("product_owners")
-      .select("team:teams(name)")
+      .select("team_id, team:teams(name)")
       .eq("product_id", request.product_id)
-      .returns<{ team: { name: string } | null }[]>();
+      .returns<{ team_id: string; team: { name: string } | null }[]>();
     productOwnerNames = (ownerRows ?? [])
       .map((r) => r.team?.name)
       .filter((n): n is string => Boolean(n));
+    owningTeamIds = (ownerRows ?? []).map((r) => r.team_id);
   }
 
   const isAdmin = profile.role === "admin";
   const isAuthor = request.author_id === profile.id;
   const isDraft = request.state === "draft";
   const canManageTags = isAdmin || isAuthor;
+
+  // Owner = a DRI from an owning team. The owning team (or an admin) assigns it.
+  const callerOnOwningTeam =
+    profile.team_id !== null && owningTeamIds.includes(profile.team_id);
+  const canAssignOwner = isAdmin || callerOnOwningTeam;
+  let ownerCandidates: { id: string; label: string }[] = [];
+  if (canAssignOwner && owningTeamIds.length > 0) {
+    const { data: memberRows } = await supabase
+      .from("profiles")
+      .select("id, full_name, email")
+      .in("team_id", owningTeamIds)
+      .order("full_name", { ascending: true, nullsFirst: false })
+      .returns<{ id: string; full_name: string | null; email: string | null }[]>();
+    ownerCandidates = (memberRows ?? []).map((m) => ({
+      id: m.id,
+      label: m.full_name?.trim() || m.email?.trim() || "Unknown",
+    }));
+  }
+  const ownerLabel = request.owner
+    ? request.owner.full_name?.trim() || request.owner.email?.trim() || "Unknown"
+    : null;
 
   // Existing tags on this request.
   const { data: userTagRows } = await supabase
@@ -291,6 +317,11 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
             {productOwnerNames.length > 0 && (
               <span className="text-xs text-muted-foreground">
                 owned by {productOwnerNames.join(", ")}
+              </span>
+            )}
+            {ownerLabel && (
+              <span className="text-xs text-muted-foreground">
+                · owner: {ownerLabel}
               </span>
             )}
             {request.notion_url && (
@@ -461,6 +492,26 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
           statuses={statuses}
           currentStatusId={request.status_id}
         />
+      )}
+
+      {(canAssignOwner || ownerLabel) && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Owner</CardTitle>
+            <CardDescription>
+              The person on the owning team responsible for this request.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <RequestOwnerControl
+              requestId={id}
+              currentOwnerId={request.owner?.id ?? null}
+              currentOwnerLabel={ownerLabel}
+              candidates={ownerCandidates}
+              canAssign={canAssignOwner}
+            />
+          </CardContent>
+        </Card>
       )}
 
       <Card>

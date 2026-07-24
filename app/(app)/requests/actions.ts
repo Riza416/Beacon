@@ -1125,6 +1125,72 @@ export async function removeWatcher(
   return { ok: true };
 }
 
+/**
+ * Assign (or clear) a request's owner — the DRI / point of contact on the
+ * owning team. May be set by a global admin or any member of a team that owns
+ * the request's workstream. The owner must themselves be a member of an owning
+ * team. Written via the service-role client after the check (owning-team
+ * members have no direct RLS write on requests).
+ */
+export async function setRequestOwner(
+  requestId: string,
+  ownerId: string | null
+): Promise<{ ok: true }> {
+  const reqId = uuidSchema.parse(requestId);
+  const ownerUserId = ownerId === null ? null : uuidSchema.parse(ownerId);
+  const { supabase, profile } = await authedAction();
+
+  const { data: req, error: reqErr } = await supabase
+    .from("requests")
+    .select("id, product_id")
+    .eq("id", reqId)
+    .maybeSingle<{ id: string; product_id: string | null }>();
+  if (reqErr) throw new Error(reqErr.message);
+  if (!req) throw new Error("Request not found");
+  if (!req.product_id) {
+    throw new Error("Assign this request to a workstream first.");
+  }
+
+  // Which teams own this request's workstream.
+  const { data: ownerTeams } = await supabase
+    .from("product_owners")
+    .select("team_id")
+    .eq("product_id", req.product_id)
+    .returns<{ team_id: string }[]>();
+  const owningTeamIds = new Set((ownerTeams ?? []).map((o) => o.team_id));
+
+  // Authorize the caller: global admin, or a member of an owning team.
+  const isAdmin = profile.role === "admin";
+  const callerOnOwningTeam =
+    profile.team_id !== null && owningTeamIds.has(profile.team_id);
+  if (!isAdmin && !callerOnOwningTeam) {
+    throw new Error("Only the owning team can set a request's owner.");
+  }
+
+  // Validate the chosen owner is on an owning team.
+  if (ownerUserId) {
+    const { data: candidate } = await supabase
+      .from("profiles")
+      .select("team_id")
+      .eq("id", ownerUserId)
+      .maybeSingle<{ team_id: string | null }>();
+    if (!candidate?.team_id || !owningTeamIds.has(candidate.team_id)) {
+      throw new Error("The owner must be a member of an owning team.");
+    }
+  }
+
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("requests")
+    .update({ owner_id: ownerUserId })
+    .eq("id", reqId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath(`/requests/${reqId}`);
+  revalidatePath("/");
+  return { ok: true };
+}
+
 export async function setTeamPriority(
   requestId: string,
   value: number

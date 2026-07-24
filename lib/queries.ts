@@ -18,6 +18,7 @@ export const REQUEST_DETAIL_SELECT =
   "status:statuses(id, label, color), " +
   "product:products(id, name), " +
   "project:projects(id, name), " +
+  "owner:profiles!requests_owner_id_fkey(id, full_name, email), " +
   "author:profiles!requests_author_id_fkey(full_name, email)";
 
 /** Compact request row for the per-team listings on the team detail page. */

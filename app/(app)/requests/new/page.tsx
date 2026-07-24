@@ -27,10 +27,7 @@ export default async function NewRequestPage({
 
   const { data: productRows } = await supabase
     .from("products")
-    .select(
-      "id, name, show_deadline, show_dependent_teams, " +
-        "owner:profiles!products_owner_id_fkey(full_name, email)"
-    )
+    .select("id, name, show_deadline, show_dependent_teams")
     .order("name")
     .returns<
       {
@@ -38,7 +35,6 @@ export default async function NewRequestPage({
         name: string;
         show_deadline: boolean;
         show_dependent_teams: boolean;
-        owner: { full_name: string | null; email: string | null } | null;
       }[]
     >();
   const products = (productRows ?? []).map((p) => ({
@@ -46,7 +42,6 @@ export default async function NewRequestPage({
     name: p.name,
     show_deadline: p.show_deadline,
     show_dependent_teams: p.show_dependent_teams,
-    owner_name: p.owner?.full_name || p.owner?.email || null,
   }));
 
   const { data: allTeams } = await supabase
