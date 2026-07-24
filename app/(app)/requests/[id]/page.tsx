@@ -25,7 +25,8 @@ import { RepoActions } from "@/components/repo-actions";
 import { resolveFieldsForProduct } from "@/lib/workstream-template";
 import { COMMENT_SELECT, REQUEST_DETAIL_SELECT } from "@/lib/queries";
 import { LocalTime } from "@/components/local-time";
-import { FolderKanban } from "lucide-react";
+import { FolderKanban, Lock } from "lucide-react";
+import { VisibilityManager } from "@/components/visibility-manager";
 import type {
   Comment,
   FieldDefinition,
@@ -147,6 +148,14 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
   const taggedUserIds = (userTagRows ?? []).map((r) => r.user_id);
   const taggedTeamIds = (teamTagRows ?? []).map((r) => r.team_id);
 
+  // Per-user visibility grants (only meaningful when the request is private).
+  const { data: grantRows } = await supabase
+    .from("request_visibility_grants")
+    .select("user_id")
+    .eq("request_id", id)
+    .returns<{ user_id: string }[]>();
+  const grantedUserIds = (grantRows ?? []).map((r) => r.user_id);
+
   // Clear the caller's unread state for this request. Best-effort: if the
   // call fails (e.g. brief RLS hiccup) we still want to render the page, so
   // swallow the error rather than crash the route.
@@ -204,6 +213,12 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
               {request.title || "Untitled draft"}
             </h1>
             {isDraft && <Badge variant="secondary">Draft</Badge>}
+            {request.is_private && (
+              <Badge variant="secondary" className="gap-1">
+                <Lock className="h-3 w-3" />
+                Private
+              </Badge>
+            )}
             {request.status && (
               <Badge
                 style={{
@@ -390,6 +405,28 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
           statuses={statuses}
           currentStatusId={request.status_id}
         />
+      )}
+
+      {(request.is_private || canManageTags) && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Who can see this</CardTitle>
+            <CardDescription>
+              Keep this request private and choose exactly who can see it —
+              on top of admins and the owning &amp; dependent teams.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <VisibilityManager
+              requestId={id}
+              isPrivate={request.is_private}
+              authorId={request.author_id}
+              profiles={profileRows ?? []}
+              grantedUserIds={grantedUserIds}
+              canManage={canManageTags}
+            />
+          </CardContent>
+        </Card>
       )}
 
       <Card>

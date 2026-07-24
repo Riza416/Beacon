@@ -424,6 +424,39 @@ export type Database = {
           },
         ];
       };
+      request_visibility_grants: {
+        Row: {
+          request_id: string;
+          user_id: string;
+          created_at: string;
+        };
+        Insert: {
+          request_id: string;
+          user_id: string;
+          created_at?: string;
+        };
+        Update: {
+          request_id?: string;
+          user_id?: string;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "request_visibility_grants_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "request_visibility_grants_request_id_fkey";
+            columns: ["request_id"];
+            isOneToOne: false;
+            referencedRelation: "requests";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       requests: {
         Row: {
           id: string;
@@ -443,6 +476,7 @@ export type Database = {
           deadline: string | null;
           workstream_priority: number;
           project_id: string | null;
+          is_private: boolean;
         };
         Insert: {
           id?: string;
@@ -462,6 +496,7 @@ export type Database = {
           deadline?: string | null;
           workstream_priority?: number;
           project_id?: string | null;
+          is_private?: boolean;
         };
         Update: {
           id?: string;
@@ -481,6 +516,7 @@ export type Database = {
           deadline?: string | null;
           workstream_priority?: number;
           project_id?: string | null;
+          is_private?: boolean;
         };
         Relationships: [
           {
@@ -491,10 +527,10 @@ export type Database = {
             referencedColumns: ["id"];
           },
           {
-            foreignKeyName: "requests_team_id_fkey";
-            columns: ["team_id"];
+            foreignKeyName: "requests_product_id_fkey";
+            columns: ["product_id"];
             isOneToOne: false;
-            referencedRelation: "teams";
+            referencedRelation: "products";
             referencedColumns: ["id"];
           },
           {
@@ -505,17 +541,17 @@ export type Database = {
             referencedColumns: ["id"];
           },
           {
-            foreignKeyName: "requests_product_id_fkey";
-            columns: ["product_id"];
-            isOneToOne: false;
-            referencedRelation: "products";
-            referencedColumns: ["id"];
-          },
-          {
             foreignKeyName: "requests_status_id_fkey";
             columns: ["status_id"];
             isOneToOne: false;
             referencedRelation: "statuses";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "requests_team_id_fkey";
+            columns: ["team_id"];
+            isOneToOne: false;
+            referencedRelation: "teams";
             referencedColumns: ["id"];
           },
         ];

@@ -33,7 +33,7 @@ import {
   setFieldFile,
   getRequestTemplate,
 } from "@/app/(app)/requests/actions";
-import { X } from "lucide-react";
+import { X, Lock } from "lucide-react";
 import { ScreenshotInput } from "@/components/screenshot-input";
 import { RepoActions } from "@/components/repo-actions";
 import type { SubmitResult } from "@/lib/request-actions-types";
@@ -188,6 +188,9 @@ export function RequestForm({
   // Fields are the SELECTED workstream's template. Seeded from the server for
   // the initial workstream; refetched when the author switches workstream so
   // the requirements always match what that workstream's owner configured.
+  const [isPrivate, setIsPrivate] = React.useState<boolean>(
+    request?.is_private ?? false
+  );
   const [fields, setFields] = React.useState<FieldDefinition[]>(initialFields);
   const [templateLoading, setTemplateLoading] = React.useState(false);
   const didMount = React.useRef(false);
@@ -408,6 +411,7 @@ export function RequestForm({
       summary,
       productId,
       projectId,
+      isPrivate,
       deadline: deadline ? deadline : null,
       values: valuesPayload,
     };
@@ -683,6 +687,40 @@ export function RequestForm({
           </p>
         </div>
       )}
+
+      <div className="space-y-2">
+        <Label className="flex items-center gap-1.5">
+          <Lock className="h-4 w-4" />
+          Visibility
+        </Label>
+        <label className="flex cursor-pointer items-start gap-3 rounded-md border p-3">
+          <Checkbox
+            checked={isPrivate}
+            onCheckedChange={(c) => {
+              setDirty(true);
+              setIsPrivate(c === true);
+            }}
+            className="mt-0.5"
+            aria-label="Make this request private"
+          />
+          <span className="space-y-0.5">
+            <span className="block text-sm font-medium">
+              Make this request private
+            </span>
+            <span className="block text-xs text-muted-foreground">
+              {isPrivate
+                ? "Only you, admins, the owning + dependent teams, and people you add can see this request."
+                : "Anyone in the workspace can see this request (default)."}
+            </span>
+          </span>
+        </label>
+        {isPrivate && effectiveId && (
+          <p className="text-xs text-muted-foreground">
+            Add specific people under “Who can see this” on the request page
+            after saving.
+          </p>
+        )}
+      </div>
 
       <div className="space-y-2">
         <Label htmlFor="title">Title</Label>

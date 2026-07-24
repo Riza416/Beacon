@@ -64,6 +64,8 @@ interface FormState {
   productId: string | null;
   /** Project this request is grouped under, or null. */
   projectId: string | null;
+  /** When true, visibility is restricted (see can_view_request in 0025). */
+  isPrivate: boolean;
   /** YYYY-MM-DD or null. */
   deadline: string | null;
   values: FormValues;
@@ -101,6 +103,7 @@ const formStateSchema = z.object({
   summary: z.string().max(20000),
   productId: z.string().uuid().nullable(),
   projectId: z.string().uuid().nullable(),
+  isPrivate: z.boolean(),
   // Postgres `date` column. Accept YYYY-MM-DD or null.
   deadline: z
     .string()
@@ -247,6 +250,7 @@ async function persistFormState(
     summary: summary.length === 0 ? null : summary,
     product_id: parsed.productId,
     project_id: parsed.projectId,
+    is_private: parsed.isPrivate,
     deadline: parsed.deadline,
   };
   if (nextTeamPriority !== undefined) {
@@ -873,6 +877,84 @@ export async function markTagsViewed(
   // Don't revalidate /requests/[id] — we're already rendering it.
   revalidatePath("/");
   revalidatePath("/requests/tagged-for-me");
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Privacy: mark a request private, and manage per-user visibility grants.
+// Only the request author or an admin may change privacy or grants. The read
+// audience itself is enforced in RLS (see 0025_private_requests.sql).
+// ---------------------------------------------------------------------------
+
+export async function setRequestPrivacy(
+  requestId: string,
+  isPrivate: boolean
+): Promise<{ ok: true }> {
+  const reqId = uuidSchema.parse(requestId);
+  const { supabase, profile } = await authedAction();
+
+  const { data: req, error: reqErr } = await supabase
+    .from("requests")
+    .select("author_id")
+    .eq("id", reqId)
+    .maybeSingle<{ author_id: string }>();
+  if (reqErr) throw new Error(reqErr.message);
+  if (!req) throw new Error("Request not found");
+  if (profile.role !== "admin" && req.author_id !== profile.id) {
+    throw new Error("Only the author or an admin can change privacy.");
+  }
+
+  const { error } = await supabase
+    .from("requests")
+    .update({ is_private: isPrivate })
+    .eq("id", reqId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath(`/requests/${reqId}`);
+  revalidatePath(`/requests/${reqId}/edit`);
+  revalidatePath("/");
+  revalidatePath("/requests/mine");
+  return { ok: true };
+}
+
+export async function addVisibilityGrant(
+  requestId: string,
+  userId: string
+): Promise<{ ok: true }> {
+  const reqId = uuidSchema.parse(requestId);
+  const uId = uuidSchema.parse(userId);
+  const ctx = await authedAction();
+  await assertCanTag(reqId, ctx); // same rule: author or admin
+
+  const { error } = await ctx.supabase
+    .from("request_visibility_grants")
+    .upsert(
+      { request_id: reqId, user_id: uId },
+      { onConflict: "request_id,user_id", ignoreDuplicates: true }
+    );
+  if (error) throw new Error(error.message);
+
+  revalidatePath(`/requests/${reqId}`);
+  return { ok: true };
+}
+
+export async function removeVisibilityGrant(
+  requestId: string,
+  userId: string
+): Promise<{ ok: true }> {
+  const reqId = uuidSchema.parse(requestId);
+  const uId = uuidSchema.parse(userId);
+  const ctx = await authedAction();
+  await assertCanTag(reqId, ctx);
+
+  const { error } = await ctx.supabase
+    .from("request_visibility_grants")
+    .delete()
+    .eq("request_id", reqId)
+    .eq("user_id", uId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath(`/requests/${reqId}`);
   return { ok: true };
 }
 
