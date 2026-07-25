@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Lock } from "lucide-react";
+import { Lock, ThumbsUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LocalTime } from "@/components/local-time";
 
@@ -31,6 +31,8 @@ export interface WorkstreamRequestRowProps {
   isPrivate?: boolean;
   /** Days a submitted request has waited with no response yet (null = hide). */
   agingDays?: number | null;
+  /** "+1" demand count; a chip renders when > 0. */
+  supporters?: number;
 }
 
 export function WorkstreamRequestRow({
@@ -46,6 +48,7 @@ export function WorkstreamRequestRow({
   tag,
   isPrivate,
   agingDays,
+  supporters,
 }: WorkstreamRequestRowProps) {
   const overdue = deadline ? new Date(deadline) < new Date() : false;
   const [preview, setPreview] = React.useState<{ top: number; left: number } | null>(
@@ -122,6 +125,15 @@ export function WorkstreamRequestRow({
         </div>
       </div>
 
+      {typeof supporters === "number" && supporters > 0 && (
+        <span
+          className="inline-flex shrink-0 items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-primary"
+          title={`${supporters} team${supporters === 1 ? "" : "s"} +1'd this`}
+        >
+          <ThumbsUp className="h-3 w-3" />
+          {supporters}
+        </span>
+      )}
       {tag && (
         <span className="shrink-0 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">
           {tag}

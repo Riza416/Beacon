@@ -10,7 +10,8 @@ export const REQUEST_CARD_SELECT =
   "status:statuses(id, label, color), " +
   "team:teams!requests_team_id_fkey(id, name), " +
   "product:products(id, name), " +
-  "author:profiles!requests_author_id_fkey(full_name, email)";
+  "author:profiles!requests_author_id_fkey(full_name, email), " +
+  "supporters:request_supporters(count)";
 
 /** Full request row + joins for the detail page. */
 export const REQUEST_DETAIL_SELECT =

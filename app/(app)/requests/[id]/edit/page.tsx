@@ -43,53 +43,59 @@ export default async function EditRequestPage({ params }: EditPageProps) {
     redirect(`/requests/${id}`);
   }
 
-  // Fields are the SELECTED workstream's template (resolved by the shared
-  // resolver so display and submit-validation agree). No workstream → no
-  // custom fields until the author picks one; the form fetches the template
-  // again when the workstream dropdown changes.
-  const fields = await resolveFieldsForProduct(supabase, request.product_id);
-
-  const { data: values } = await supabase
-    .from("request_field_values")
-    .select("*")
-    .eq("request_id", id)
-    .returns<FieldValue[]>();
-
-  const { data: products } = await supabase
-    .from("products")
-    .select("id, name, show_deadline, show_dependent_teams")
-    .order("name")
-    .returns<
-      {
-        id: string;
-        name: string;
-        show_deadline: boolean;
-        show_dependent_teams: boolean;
-      }[]
-    >();
-
-  // Teams + this request's existing team tags. Authors flag dependent teams
-  // while drafting; the picker below the deadline field reads from these.
-  const { data: allTeams } = await supabase
-    .from("teams")
-    .select("id, name")
-    .order("name", { ascending: true })
-    .returns<{ id: string; name: string }[]>();
-
-  const { data: teamTagRows } = await supabase
-    .from("request_team_tags")
-    .select("team_id")
-    .eq("request_id", id)
-    .returns<{ team_id: string }[]>();
+  // Everything below depends only on the request row, so fetch it all in
+  // parallel:
+  // - Fields are the SELECTED workstream's template (resolved by the shared
+  //   resolver so display and submit-validation agree). No workstream → no
+  //   custom fields until the author picks one; the form fetches the template
+  //   again when the workstream dropdown changes.
+  // - Teams + this request's existing team tags. Authors flag dependent teams
+  //   while drafting; the picker below the deadline field reads from these.
+  // - The caller's own projects for the Project picker.
+  const [
+    fields,
+    { data: values },
+    { data: products },
+    { data: allTeams },
+    { data: teamTagRows },
+    { data: ownProjects },
+  ] = await Promise.all([
+    resolveFieldsForProduct(supabase, request.product_id),
+    supabase
+      .from("request_field_values")
+      .select("*")
+      .eq("request_id", id)
+      .returns<FieldValue[]>(),
+    supabase
+      .from("products")
+      .select("id, name, show_deadline, show_dependent_teams")
+      .order("name")
+      .returns<
+        {
+          id: string;
+          name: string;
+          show_deadline: boolean;
+          show_dependent_teams: boolean;
+        }[]
+      >(),
+    supabase
+      .from("teams")
+      .select("id, name")
+      .order("name", { ascending: true })
+      .returns<{ id: string; name: string }[]>(),
+    supabase
+      .from("request_team_tags")
+      .select("team_id")
+      .eq("request_id", id)
+      .returns<{ team_id: string }[]>(),
+    supabase
+      .from("projects")
+      .select("id, name")
+      .eq("owner_id", profile.id)
+      .order("updated_at", { ascending: false })
+      .returns<{ id: string; name: string }[]>(),
+  ]);
   const taggedTeamIds = (teamTagRows ?? []).map((r) => r.team_id);
-
-  // The caller's own projects for the Project picker.
-  const { data: ownProjects } = await supabase
-    .from("projects")
-    .select("id, name")
-    .eq("owner_id", profile.id)
-    .order("updated_at", { ascending: false })
-    .returns<{ id: string; name: string }[]>();
 
   // Keep the request's current project selectable/preserved even when the
   // editor doesn't own it (e.g. an admin editing another user's request), so

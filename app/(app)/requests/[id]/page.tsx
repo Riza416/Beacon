@@ -32,6 +32,7 @@ import { FolderKanban, Lock } from "lucide-react";
 import { VisibilityManager } from "@/components/visibility-manager";
 import { WatchControl } from "@/components/watch-control";
 import { RequestOwnerControl } from "@/components/request-owner-control";
+import { SupportButton } from "@/components/support-button";
 import type {
   Comment,
   FieldDefinition,
@@ -69,6 +70,16 @@ type CommentWithAuthor = Comment & {
   author: { full_name: string | null; email: string | null } | null;
 };
 
+interface RequestEventRow {
+  id: string;
+  kind: "submitted" | "status_changed" | "owner_changed";
+  note: string | null;
+  created_at: string;
+  actor: { full_name: string | null; email: string | null } | null;
+  from_status: { label: string } | null;
+  to_status: { label: string } | null;
+}
+
 type RequestWithJoins = RequestRow & {
   status: { id: string; label: string; color: string } | null;
   product: { id: string; name: string } | null;
@@ -97,159 +108,189 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
 
   if (!request) notFound();
 
-  // Show the workstream's template (same resolver the request form uses), so
-  // the detail view matches the fields the author actually filled in.
-  const fields = await resolveFieldsForProduct(supabase, request.product_id);
-
-  const { data: values } = await supabase
-    .from("request_field_values")
-    .select("*")
-    .eq("request_id", id)
-    .returns<FieldValue[]>();
-
-  const { data: comments } = await supabase
-    .from("comments")
-    .select(COMMENT_SELECT)
-    .eq("request_id", id)
-    .order("created_at", { ascending: true })
-    .returns<CommentWithAuthor[]>();
-
-  // @mentions per comment → display names, for highlighting in the thread.
-  const commentIds = (comments ?? []).map((c) => c.id);
-  const mentionsByComment = new Map<string, string[]>();
-  if (commentIds.length > 0) {
-    const { data: mentionRows } = await supabase
-      .from("comment_mentions")
-      .select(
-        "comment_id, user:profiles!comment_mentions_user_id_fkey(full_name, email)"
-      )
-      .in("comment_id", commentIds)
-      .returns<
-        {
-          comment_id: string;
-          user: { full_name: string | null; email: string | null } | null;
-        }[]
-      >();
-    for (const row of mentionRows ?? []) {
-      const name = row.user?.full_name?.trim() || row.user?.email?.trim();
-      if (!name) continue;
-      const list = mentionsByComment.get(row.comment_id) ?? [];
-      list.push(name);
-      mentionsByComment.set(row.comment_id, list);
-    }
-  }
-
-  // Teams that own this request's product (if any), shown next to the
-  // product badge so the relationship is visible from the request. Also the
-  // owning teams' ids, used to scope who can be the request owner.
-  let productOwnerNames: string[] = [];
-  let owningTeamIds: string[] = [];
-  if (request.product_id) {
-    const { data: ownerRows } = await supabase
-      .from("product_owners")
-      .select("team_id, team:teams(name)")
-      .eq("product_id", request.product_id)
-      .returns<{ team_id: string; team: { name: string } | null }[]>();
-    productOwnerNames = (ownerRows ?? [])
-      .map((r) => r.team?.name)
-      .filter((n): n is string => Boolean(n));
-    owningTeamIds = (ownerRows ?? []).map((r) => r.team_id);
-  }
-
   const isAdmin = profile.role === "admin";
   const isAuthor = request.author_id === profile.id;
   const isDraft = request.state === "draft";
   const canManageTags = isAdmin || isAuthor;
 
+  // Everything below depends only on the request row, so run it as ONE
+  // parallel stage instead of a dozen sequential round-trips (each of which
+  // used to add its own Vercel→DB latency to the page's TTFB).
+  const [
+    fields,
+    { data: values },
+    { data: comments },
+    ownerRowsRes,
+    { data: userTagRows },
+    { data: teamTagRows },
+    { data: profileRows },
+    { data: teamRows },
+    { data: grantRows },
+    { data: watcherRows },
+    { data: supporterRows },
+    { data: eventRows },
+    statusesRes,
+  ] = await Promise.all([
+    // The workstream's template (same resolver the request form uses).
+    resolveFieldsForProduct(supabase, request.product_id),
+    supabase
+      .from("request_field_values")
+      .select("*")
+      .eq("request_id", id)
+      .returns<FieldValue[]>(),
+    supabase
+      .from("comments")
+      .select(COMMENT_SELECT)
+      .eq("request_id", id)
+      .order("created_at", { ascending: true })
+      .returns<CommentWithAuthor[]>(),
+    request.product_id
+      ? supabase
+          .from("product_owners")
+          .select("team_id, team:teams(name)")
+          .eq("product_id", request.product_id)
+          .returns<{ team_id: string; team: { name: string } | null }[]>()
+      : Promise.resolve({ data: null }),
+    supabase
+      .from("request_collaborators")
+      .select("user_id")
+      .eq("request_id", id)
+      .returns<{ user_id: string }[]>(),
+    supabase
+      .from("request_team_tags")
+      .select("team_id")
+      .eq("request_id", id)
+      .returns<{ team_id: string }[]>(),
+    supabase
+      .from("profiles")
+      .select("id, full_name, email")
+      .order("full_name", { ascending: true, nullsFirst: false })
+      .returns<TagPickerProfile[]>(),
+    supabase
+      .from("teams")
+      .select("id, name")
+      .order("name", { ascending: true })
+      .returns<TagPickerTeam[]>(),
+    supabase
+      .from("request_visibility_grants")
+      .select("user_id")
+      .eq("request_id", id)
+      .returns<{ user_id: string }[]>(),
+    supabase
+      .from("request_watchers")
+      .select("user_id")
+      .eq("request_id", id)
+      .returns<{ user_id: string }[]>(),
+    supabase
+      .from("request_supporters")
+      .select("user_id")
+      .eq("request_id", id)
+      .returns<{ user_id: string }[]>(),
+    supabase
+      .from("request_events")
+      .select(
+        "id, kind, note, created_at, " +
+          "actor:profiles!request_events_actor_id_fkey(full_name, email), " +
+          "from_status:statuses!request_events_from_status_id_fkey(label), " +
+          "to_status:statuses!request_events_to_status_id_fkey(label)"
+      )
+      .eq("request_id", id)
+      .order("created_at", { ascending: false })
+      .limit(30)
+      .returns<RequestEventRow[]>(),
+    isAdmin
+      ? supabase
+          .from("statuses")
+          .select("*")
+          .order("display_order", { ascending: true })
+          .returns<Status[]>()
+      : Promise.resolve({ data: null }),
+    // Clear the caller's unread state — best-effort, never blocks the page.
+    markTagsViewed(id).catch(() => {}),
+  ]);
+
+  const statuses: Status[] = statusesRes.data ?? [];
+  const ownerRows = ownerRowsRes.data ?? [];
+  const productOwnerNames = ownerRows
+    .map((r) => r.team?.name)
+    .filter((n): n is string => Boolean(n));
+  const owningTeamIds = ownerRows.map((r) => r.team_id);
+
   // Owner = a DRI from an owning team. The owning team (or an admin) assigns it.
   const callerOnOwningTeam =
     profile.team_id !== null && owningTeamIds.includes(profile.team_id);
   const canAssignOwner = isAdmin || callerOnOwningTeam;
-  let ownerCandidates: { id: string; label: string }[] = [];
-  if (canAssignOwner && owningTeamIds.length > 0) {
-    const { data: memberRows } = await supabase
-      .from("profiles")
-      .select("id, full_name, email")
-      .in("team_id", owningTeamIds)
-      .order("full_name", { ascending: true, nullsFirst: false })
-      .returns<{ id: string; full_name: string | null; email: string | null }[]>();
-    ownerCandidates = (memberRows ?? []).map((m) => ({
-      id: m.id,
-      label: m.full_name?.trim() || m.email?.trim() || "Unknown",
-    }));
-  }
   const ownerLabel = request.owner
     ? request.owner.full_name?.trim() || request.owner.email?.trim() || "Unknown"
     : null;
 
-  // Existing tags on this request.
-  const { data: userTagRows } = await supabase
-    .from("request_collaborators")
-    .select("user_id")
-    .eq("request_id", id)
-    .returns<{ user_id: string }[]>();
-  const { data: teamTagRows } = await supabase
-    .from("request_team_tags")
-    .select("team_id")
-    .eq("request_id", id)
-    .returns<{ team_id: string }[]>();
-
-  // All profiles + teams for the picker (every authenticated user can read
-  // both tables — RLS in 0002_rls.sql).
-  const { data: profileRows } = await supabase
-    .from("profiles")
-    .select("id, full_name, email")
-    .order("full_name", { ascending: true, nullsFirst: false })
-    .returns<TagPickerProfile[]>();
-  const { data: teamRows } = await supabase
-    .from("teams")
-    .select("id, name")
-    .order("name", { ascending: true })
-    .returns<TagPickerTeam[]>();
-
   const taggedUserIds = (userTagRows ?? []).map((r) => r.user_id);
   const taggedTeamIds = (teamTagRows ?? []).map((r) => r.team_id);
-
-  // Per-user visibility grants (only meaningful when the request is private).
-  const { data: grantRows } = await supabase
-    .from("request_visibility_grants")
-    .select("user_id")
-    .eq("request_id", id)
-    .returns<{ user_id: string }[]>();
   const grantedUserIds = (grantRows ?? []).map((r) => r.user_id);
-
-  // Watchers (notified on status changes + deadline reminders).
-  const { data: watcherRows } = await supabase
-    .from("request_watchers")
-    .select("user_id")
-    .eq("request_id", id)
-    .returns<{ user_id: string }[]>();
   const watcherIds = (watcherRows ?? []).map((r) => r.user_id);
   const iAmWatching = watcherIds.includes(profile.id);
+  const supporterIds = (supporterRows ?? []).map((r) => r.user_id);
+  const iSupport = supporterIds.includes(profile.id);
+  const events = eventRows ?? [];
 
-  // Clear the caller's unread state for this request. Best-effort: if the
-  // call fails (e.g. brief RLS hiccup) we still want to render the page, so
-  // swallow the error rather than crash the route.
-  try {
-    await markTagsViewed(id);
-  } catch {
-    // ignore — the next visit will retry.
+  // Second stage: the few lookups that depend on stage-one results, still in
+  // parallel with each other.
+  const commentIds = (comments ?? []).map((c) => c.id);
+  const filePaths = (values ?? [])
+    .filter((v) => v.file_path)
+    .map((v) => v.file_path as string);
+  const [mentionRowsRes, signedRes, memberRowsRes] = await Promise.all([
+    commentIds.length > 0
+      ? supabase
+          .from("comment_mentions")
+          .select(
+            "comment_id, user:profiles!comment_mentions_user_id_fkey(full_name, email)"
+          )
+          .in("comment_id", commentIds)
+          .returns<
+            {
+              comment_id: string;
+              user: { full_name: string | null; email: string | null } | null;
+            }[]
+          >()
+      : Promise.resolve({ data: null }),
+    filePaths.length > 0
+      ? supabase.storage
+          .from("request-attachments")
+          .createSignedUrls(filePaths, 3600)
+      : Promise.resolve({ data: null }),
+    canAssignOwner && owningTeamIds.length > 0
+      ? supabase
+          .from("profiles")
+          .select("id, full_name, email")
+          .in("team_id", owningTeamIds)
+          .order("full_name", { ascending: true, nullsFirst: false })
+          .returns<
+            { id: string; full_name: string | null; email: string | null }[]
+          >()
+      : Promise.resolve({ data: null }),
+  ]);
+
+  // @mentions per comment → display names, for highlighting in the thread.
+  const mentionsByComment = new Map<string, string[]>();
+  for (const row of mentionRowsRes.data ?? []) {
+    const name = row.user?.full_name?.trim() || row.user?.email?.trim();
+    if (!name) continue;
+    const list = mentionsByComment.get(row.comment_id) ?? [];
+    list.push(name);
+    mentionsByComment.set(row.comment_id, list);
   }
 
-  // Sign URLs for any file/image fields.
+  // Signed URLs for any file/image fields.
   const signedUrls = new Map<string, string>();
-  const filePaths: string[] = [];
-  for (const v of values ?? []) {
-    if (v.file_path) filePaths.push(v.file_path);
+  for (const s of signedRes.data ?? []) {
+    if (s.path && s.signedUrl) signedUrls.set(s.path, s.signedUrl);
   }
-  if (filePaths.length > 0) {
-    const { data: signed } = await supabase.storage
-      .from("request-attachments")
-      .createSignedUrls(filePaths, 3600);
-    for (const s of signed ?? []) {
-      if (s.path && s.signedUrl) signedUrls.set(s.path, s.signedUrl);
-    }
-  }
+
+  const ownerCandidates = (memberRowsRes.data ?? []).map((m) => ({
+    id: m.id,
+    label: m.full_name?.trim() || m.email?.trim() || "Unknown",
+  }));
 
   // Group values by field_definition_id; each field may have several values
   // (one per allowed type).
@@ -258,16 +299,6 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
     const list = valuesByField.get(v.field_definition_id);
     if (list) list.push(v);
     else valuesByField.set(v.field_definition_id, [v]);
-  }
-
-  let statuses: Status[] = [];
-  if (isAdmin) {
-    const { data } = await supabase
-      .from("statuses")
-      .select("*")
-      .order("display_order", { ascending: true })
-      .returns<Status[]>();
-    statuses = data ?? [];
   }
 
   const authorLabel =
@@ -364,7 +395,12 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
             )}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <SupportButton
+            requestId={id}
+            initialCount={supporterIds.length}
+            initialSupported={iSupport}
+          />
           {isAuthor && isDraft && (
             <>
               <Button asChild variant="outline">
@@ -511,6 +547,54 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
               <CommentForm requestId={id} people={profileRows ?? []} />
             </CardContent>
           </Card>
+
+          {events.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Activity</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ol className="space-y-2">
+                  {events.map((e) => {
+                    const actor =
+                      e.actor?.full_name?.trim() ||
+                      e.actor?.email ||
+                      "Someone";
+                    let text: string;
+                    if (e.kind === "submitted") {
+                      text = `${actor} submitted this request`;
+                    } else if (e.kind === "owner_changed") {
+                      text =
+                        e.note === "cleared"
+                          ? `${actor} cleared the owner`
+                          : `${actor} set the owner to ${e.note ?? "someone"}`;
+                    } else {
+                      const from = e.from_status?.label ?? "No status";
+                      const to = e.to_status?.label ?? "No status";
+                      text = `${actor} moved status from ${from} to ${to}`;
+                    }
+                    return (
+                      <li
+                        key={e.id}
+                        className="flex flex-wrap items-baseline gap-x-2 text-sm"
+                      >
+                        <span className="text-muted-foreground">·</span>
+                        <span>{text}</span>
+                        {e.kind === "status_changed" && e.note && (
+                          <span className="text-muted-foreground">
+                            — &ldquo;{e.note}&rdquo;
+                          </span>
+                        )}
+                        <span className="text-xs text-muted-foreground">
+                          <LocalTime value={e.created_at} />
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ol>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         {/* Right rail — properties, people, and actions. */}

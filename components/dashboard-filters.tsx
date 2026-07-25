@@ -1,7 +1,8 @@
 "use client";
 
+import * as React from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
-import { X } from "lucide-react";
+import { X, Search } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -10,6 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 interface DashboardFiltersProps {
   teams: { id: string; name: string }[];
@@ -35,8 +37,31 @@ export function DashboardFilters({
   const status = search.get("status") ?? ALL;
   const author = search.get("author") ?? ALL;
   const product = search.get("product") ?? ALL;
+  const q = search.get("q") ?? "";
   const hasAny =
-    team !== ALL || status !== ALL || author !== ALL || product !== ALL;
+    team !== ALL ||
+    status !== ALL ||
+    author !== ALL ||
+    product !== ALL ||
+    q.length > 0;
+
+  // Debounced text search: typing updates local state instantly and pushes the
+  // ?q= param 350ms after the last keystroke (replace, so each keystroke
+  // doesn't pollute history).
+  const [qInput, setQInput] = React.useState(q);
+  React.useEffect(() => setQInput(q), [q]);
+  React.useEffect(() => {
+    if (qInput === q) return;
+    const t = setTimeout(() => {
+      const params = new URLSearchParams(search.toString());
+      if (qInput.trim().length === 0) params.delete("q");
+      else params.set("q", qInput.trim());
+      const qs = params.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname);
+    }, 350);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [qInput]);
 
   function update(key: string, value: string) {
     const params = new URLSearchParams(search.toString());
@@ -47,11 +72,25 @@ export function DashboardFilters({
   }
 
   function clearAll() {
+    setQInput("");
     router.push(pathname);
   }
 
   return (
     <div className="flex flex-wrap items-center gap-2">
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={qInput}
+          onChange={(e) => setQInput(e.target.value)}
+          placeholder="Search requests…"
+          className="h-8 w-[200px] pl-8 text-xs"
+          autoComplete="off"
+          spellCheck={false}
+          aria-label="Search requests by title or summary"
+        />
+      </div>
+
       <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
         Filter
       </span>

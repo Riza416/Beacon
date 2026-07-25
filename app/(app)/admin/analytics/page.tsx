@@ -6,6 +6,7 @@ export const dynamic = "force-dynamic";
 
 interface Row {
   id: string;
+  title: string;
   state: string;
   submitted_at: string | null;
   acknowledged_at: string | null;
@@ -38,34 +39,53 @@ export default async function AnalyticsPage() {
   const supabase = await createClient();
   const now = Date.now();
 
-  const [{ data: statuses }, { data: products }, { data: reqData }] =
-    await Promise.all([
-      supabase
-        .from("statuses")
-        .select("id, label, color, is_terminal, is_default")
-        .order("display_order", { ascending: true })
-        .returns<
-          {
-            id: string;
-            label: string;
-            color: string;
-            is_terminal: boolean;
-            is_default: boolean;
-          }[]
-        >(),
-      supabase
-        .from("products")
-        .select("id, name")
-        .order("name")
-        .returns<{ id: string; name: string }[]>(),
-      supabase
-        .from("requests")
-        .select(
-          "id, state, submitted_at, acknowledged_at, updated_at, status_id, product_id, decline_reason"
-        )
-        .eq("state", "submitted")
-        .returns<Row[]>(),
-    ]);
+  const [
+    { data: statuses },
+    { data: products },
+    { data: reqData },
+    { data: eventRows },
+    { data: supporterRows },
+  ] = await Promise.all([
+    supabase
+      .from("statuses")
+      .select("id, label, color, is_terminal, is_default")
+      .order("display_order", { ascending: true })
+      .returns<
+        {
+          id: string;
+          label: string;
+          color: string;
+          is_terminal: boolean;
+          is_default: boolean;
+        }[]
+      >(),
+    supabase
+      .from("products")
+      .select("id, name")
+      .order("name")
+      .returns<{ id: string; name: string }[]>(),
+    supabase
+      .from("requests")
+      .select(
+        "id, title, state, submitted_at, acknowledged_at, updated_at, status_id, product_id, decline_reason"
+      )
+      .eq("state", "submitted")
+      .returns<Row[]>(),
+    // Status-change events: the honest close timestamps (the first move into
+    // a terminal status), instead of approximating with updated_at.
+    supabase
+      .from("request_events")
+      .select("request_id, to_status_id, created_at")
+      .eq("kind", "status_changed")
+      .order("created_at", { ascending: true })
+      .returns<
+        { request_id: string; to_status_id: string | null; created_at: string }[]
+      >(),
+    supabase
+      .from("request_supporters")
+      .select("request_id")
+      .returns<{ request_id: string }[]>(),
+  ]);
 
   const terminalIds = new Set(
     (statuses ?? []).filter((s) => s.is_terminal).map((s) => s.id)
@@ -96,16 +116,39 @@ export default async function AnalyticsPage() {
           new Date(r.submitted_at as string).getTime()
       )
   );
-  // Median time from submit → closed (approx: last update on a terminal row).
+  // Median time from submit → closed. Uses the event log (first move into a
+  // terminal status) where present; legacy rows without events fall back to
+  // updated_at as an approximation.
+  const closedAtByRequest = new Map<string, number>();
+  for (const e of eventRows ?? []) {
+    if (!e.to_status_id || !terminalIds.has(e.to_status_id)) continue;
+    if (!closedAtByRequest.has(e.request_id)) {
+      closedAtByRequest.set(e.request_id, new Date(e.created_at).getTime());
+    }
+  }
   const timeToClose = median(
     terminal
       .filter((r) => r.submitted_at)
       .map(
         (r) =>
-          new Date(r.updated_at).getTime() -
+          (closedAtByRequest.get(r.id) ?? new Date(r.updated_at).getTime()) -
           new Date(r.submitted_at as string).getTime()
       )
   );
+
+  // Demand: +1 counts per request; "most wanted" = active requests by demand.
+  const supportByRequest = new Map<string, number>();
+  for (const s of supporterRows ?? []) {
+    supportByRequest.set(
+      s.request_id,
+      (supportByRequest.get(s.request_id) ?? 0) + 1
+    );
+  }
+  const mostWanted = active
+    .map((r) => ({ row: r, votes: supportByRequest.get(r.id) ?? 0 }))
+    .filter((x) => x.votes > 0)
+    .sort((a, b) => b.votes - a.votes)
+    .slice(0, 8);
   const acceptanceRate =
     terminal.length > 0
       ? Math.round(((terminal.length - declined.length) / terminal.length) * 100)
@@ -282,6 +325,46 @@ export default async function AnalyticsPage() {
           </div>
         )}
       </section>
+
+      {mostWanted.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
+            Most wanted
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            Active requests other teams have +1&apos;d — aggregate demand, not
+            loudest voice.
+          </p>
+          <Card>
+            <CardContent className="divide-y p-0">
+              {mostWanted.map(({ row, votes }) => (
+                <div
+                  key={row.id}
+                  className="flex items-center gap-3 p-3 text-sm"
+                >
+                  <span className="inline-flex shrink-0 items-center justify-center rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold tabular-nums text-primary">
+                    +{votes}
+                  </span>
+                  <a
+                    href={`/requests/${row.id}`}
+                    className="min-w-0 flex-1 truncate font-medium hover:underline"
+                  >
+                    {row.title || "Untitled request"}
+                  </a>
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    {row.product_id
+                      ? productName.get(row.product_id) ?? "Unknown"
+                      : "No workstream"}
+                    {row.status_id
+                      ? ` · ${statusById.get(row.status_id)?.label ?? ""}`
+                      : ""}
+                  </span>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </section>
+      )}
 
       <section className="space-y-3">
         <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">

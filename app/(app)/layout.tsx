@@ -1,6 +1,5 @@
 import { cookies } from "next/headers";
 import { requireProfile } from "@/lib/auth";
-import { countUnreadTags } from "@/lib/unread";
 import { DEMO_COOKIE } from "@/lib/demo";
 import { AppSidebar } from "@/components/app-sidebar";
 
@@ -21,8 +20,6 @@ export default async function AppLayout({
       profile.can_edit_products ||
       profile.can_delete_products);
 
-  const unread = await countUnreadTags(profile.id, profile.team_id);
-
   const cookieStore = await cookies();
   const demoOn = isAdmin && cookieStore.get(DEMO_COOKIE)?.value === "1";
   const initialCollapsed =
@@ -36,7 +33,6 @@ export default async function AppLayout({
         canManageTeamProducts={canManageTeamProducts}
         email={profile.email ?? profile.full_name ?? null}
         role={profile.role}
-        unread={unread}
         demoOn={demoOn}
         initialCollapsed={initialCollapsed}
       />

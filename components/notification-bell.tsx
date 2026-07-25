@@ -1,19 +1,36 @@
 "use client";
 
+import * as React from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { Bell } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-interface NotificationBellProps {
-  count: number;
-}
+import { getUnreadCount } from "@/app/(app)/unread-actions";
 
 /**
- * Bell icon in the top nav. The count badge is rendered in violet so it stays
- * legible on both dark and light backgrounds; capped at 99+ to keep the chip
- * narrow.
+ * Bell icon in the sidebar. The unread count is fetched client-side AFTER the
+ * page renders (and re-fetched on route change), so navigation never waits on
+ * the unread queries. Badge in violet so it stays legible on both themes;
+ * capped at 99+ to keep the chip narrow.
  */
-export function NotificationBell({ count }: NotificationBellProps) {
+export function NotificationBell() {
+  const pathname = usePathname();
+  const [count, setCount] = React.useState(0);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    getUnreadCount()
+      .then((n) => {
+        if (!cancelled) setCount(n);
+      })
+      .catch(() => {
+        // Best-effort — a failed count fetch never breaks the page.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname]);
+
   const safe = Math.max(0, count);
   const label =
     safe === 0

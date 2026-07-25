@@ -10,6 +10,7 @@ import {
   notifyMention,
   notifyRequestUpdate,
 } from "@/lib/notifications";
+import { similarityOrFilter } from "@/lib/search";
 import { resolveFieldsForProduct } from "@/lib/workstream-template";
 import * as priority from "@/lib/priority";
 import type {
@@ -487,6 +488,11 @@ export async function submitRequest(
     .eq("id", requestId);
   if (updErr) throw new Error(updErr.message);
 
+  // Lifecycle event (append-only; service-role — see 0031). Best-effort.
+  await createAdminClient()
+    .from("request_events")
+    .insert({ request_id: requestId, actor_id: ctx.profile.id, kind: "submitted" });
+
   // Alert the owning team(s) of this workstream that a new request landed.
   // Awaited (serverless freezes background work after the response) but
   // internally failure-tolerant, so it never blocks the submit.
@@ -673,6 +679,16 @@ export async function updateRequestStatus(
   if (error) throw new Error(error.message);
 
   if (before?.status_id !== statusId) {
+    // Lifecycle event: who moved it, from what, to what (+ decline reason).
+    await createAdminClient().from("request_events").insert({
+      request_id: requestId,
+      actor_id: profile.id,
+      kind: "status_changed",
+      from_status_id: before?.status_id ?? null,
+      to_status_id: statusId,
+      note: reason,
+    });
+
     const wasTerminal = before?.status_id
       ? byId.get(before.status_id)?.is_terminal ?? false
       : false;
@@ -1125,6 +1141,95 @@ export async function removeWatcher(
   return { ok: true };
 }
 
+// ---------------------------------------------------------------------------
+// Demand signal: "+1 / we need this too". RLS (0031) restricts writes to the
+// caller's own row on requests they can see, so these are thin wrappers.
+// ---------------------------------------------------------------------------
+
+export async function supportRequest(requestId: string): Promise<{ ok: true }> {
+  const reqId = uuidSchema.parse(requestId);
+  const { supabase, profile } = await authedAction();
+  const { error } = await supabase
+    .from("request_supporters")
+    .upsert(
+      { request_id: reqId, user_id: profile.id },
+      { onConflict: "request_id,user_id", ignoreDuplicates: true }
+    );
+  if (error) throw new Error(error.message);
+  revalidatePath(`/requests/${reqId}`);
+  revalidatePath("/");
+  return { ok: true };
+}
+
+export async function unsupportRequest(
+  requestId: string
+): Promise<{ ok: true }> {
+  const reqId = uuidSchema.parse(requestId);
+  const { supabase, profile } = await authedAction();
+  const { error } = await supabase
+    .from("request_supporters")
+    .delete()
+    .eq("request_id", reqId)
+    .eq("user_id", profile.id);
+  if (error) throw new Error(error.message);
+  revalidatePath(`/requests/${reqId}`);
+  revalidatePath("/");
+  return { ok: true };
+}
+
+export interface SimilarRequest {
+  id: string;
+  title: string;
+  productName: string | null;
+  statusLabel: string | null;
+  supporters: number;
+}
+
+/**
+ * Duplicate detection for the new-request form: submitted requests whose
+ * title/summary share significant words with `text`. Read via the user client,
+ * so private requests the caller can't see never appear.
+ */
+export async function findSimilarRequests(
+  text: string,
+  excludeId?: string | null
+): Promise<SimilarRequest[]> {
+  const { supabase } = await authedAction();
+  const filter = similarityOrFilter(text ?? "");
+  if (!filter) return [];
+
+  let q = supabase
+    .from("requests")
+    .select(
+      "id, title, product:products(name), status:statuses(label), " +
+        "supporters:request_supporters(count)"
+    )
+    .eq("state", "submitted")
+    .or(filter)
+    .order("updated_at", { ascending: false })
+    .limit(5);
+  if (excludeId && uuidSchema.safeParse(excludeId).success) {
+    q = q.neq("id", excludeId);
+  }
+  const { data } = await q.returns<
+    {
+      id: string;
+      title: string;
+      product: { name: string } | null;
+      status: { label: string } | null;
+      supporters: { count: number }[];
+    }[]
+  >();
+
+  return (data ?? []).map((r) => ({
+    id: r.id,
+    title: r.title,
+    productName: r.product?.name ?? null,
+    statusLabel: r.status?.label ?? null,
+    supporters: r.supporters?.[0]?.count ?? 0,
+  }));
+}
+
 /**
  * Assign (or clear) a request's owner — the DRI / point of contact on the
  * owning team. May be set by a global admin or any member of a team that owns
@@ -1168,15 +1273,21 @@ export async function setRequestOwner(
   }
 
   // Validate the chosen owner is on an owning team.
+  let ownerLabel: string | null = null;
   if (ownerUserId) {
     const { data: candidate } = await supabase
       .from("profiles")
-      .select("team_id")
+      .select("team_id, full_name, email")
       .eq("id", ownerUserId)
-      .maybeSingle<{ team_id: string | null }>();
+      .maybeSingle<{
+        team_id: string | null;
+        full_name: string | null;
+        email: string | null;
+      }>();
     if (!candidate?.team_id || !owningTeamIds.has(candidate.team_id)) {
       throw new Error("The owner must be a member of an owning team.");
     }
+    ownerLabel = candidate.full_name?.trim() || candidate.email || null;
   }
 
   const admin = createAdminClient();
@@ -1185,6 +1296,14 @@ export async function setRequestOwner(
     .update({ owner_id: ownerUserId })
     .eq("id", reqId);
   if (error) throw new Error(error.message);
+
+  // Lifecycle event: who owns it now (or that it was cleared).
+  await admin.from("request_events").insert({
+    request_id: reqId,
+    actor_id: profile.id,
+    kind: "owner_changed",
+    note: ownerLabel ?? "cleared",
+  });
 
   revalidatePath(`/requests/${reqId}`);
   revalidatePath("/");

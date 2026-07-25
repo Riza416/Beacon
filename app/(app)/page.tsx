@@ -24,6 +24,7 @@ import { DashboardFilters } from "@/components/dashboard-filters";
 import { cn } from "@/lib/utils";
 import { LocalTime } from "@/components/local-time";
 import { REQUEST_CARD_SELECT } from "@/lib/queries";
+import { titleSummaryOrFilter } from "@/lib/search";
 import type { Profile, Status, Team } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -54,6 +55,7 @@ interface RequestRowJoined {
   team: { id: string; name: string } | null;
   product: { id: string; name: string } | null;
   author: { full_name: string | null; email: string | null } | null;
+  supporters: { count: number }[] | null;
 }
 
 interface DashboardPageProps {
@@ -63,6 +65,7 @@ interface DashboardPageProps {
     status?: string;
     author?: string;
     product?: string;
+    q?: string;
   }>;
 }
 
@@ -89,6 +92,7 @@ export default async function DashboardPage({
       statusFilter={search.status ?? ALL}
       authorFilter={search.author ?? ALL}
       productFilter={search.product ?? ALL}
+      qFilter={search.q ?? ""}
     />
   );
 }
@@ -110,6 +114,7 @@ async function Dashboard({
   statusFilter,
   authorFilter,
   productFilter,
+  qFilter,
 }: {
   profile: Profile;
   view: string;
@@ -117,6 +122,7 @@ async function Dashboard({
   statusFilter: string;
   authorFilter: string;
   productFilter: string;
+  qFilter: string;
 }) {
   const supabase = await createClient();
   const isAdmin = profile.role === "admin";
@@ -188,10 +194,19 @@ async function Dashboard({
         ? baseQuery.is("product_id", null)
         : baseQuery.eq("product_id", productFilter);
   }
+  // Text search over title + summary (?q=). Sanitized so user input can't
+  // break out of the PostgREST or() filter.
+  const qOr = titleSummaryOrFilter(qFilter);
+  if (qOr) {
+    baseQuery = baseQuery.or(qOr);
+  }
 
+  // Safety cap so the dashboard payload can't grow unbounded; narrow with the
+  // filters or search above to see anything past it.
   const { data: rawRequests } = await baseQuery
     .order("team_priority", { ascending: true })
     .order("updated_at", { ascending: false })
+    .limit(1000)
     .returns<RequestRowJoined[]>();
 
   // Team dependencies: which other teams each request is tagged on, so a row
@@ -740,6 +755,7 @@ function WorkstreamsBoard({
                       workstreamName={productName(productId)}
                       isPrivate={r.is_private}
                       agingDays={agingFor(r)}
+                      supporters={r.supporters?.[0]?.count ?? 0}
                     />
                   ))}
                 </ol>

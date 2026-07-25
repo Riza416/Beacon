@@ -34,7 +34,6 @@ interface AppSidebarProps {
   canManageTeamProducts: boolean;
   email: string | null;
   role: string;
-  unread: number;
   demoOn: boolean;
   initialCollapsed: boolean;
 }
@@ -51,7 +50,6 @@ export function AppSidebar({
   canManageTeamProducts,
   email,
   role,
-  unread,
   demoOn,
   initialCollapsed,
 }: AppSidebarProps) {
@@ -190,7 +188,7 @@ export function AppSidebar({
             collapsed ? "flex-col gap-2" : "gap-1"
           )}
         >
-          <NotificationBell count={unread} />
+          <NotificationBell />
           {isAdmin && !collapsed && <DemoModeToggle enabled={demoOn} />}
         </div>
 

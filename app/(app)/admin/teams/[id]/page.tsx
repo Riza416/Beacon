@@ -37,16 +37,21 @@ interface TeamRequestRow {
   author: { full_name: string | null; email: string | null } | null;
 }
 
+const PAGE_SIZE = 50;
+
 export default async function TeamDetailPage({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ done?: string }>;
+  searchParams: Promise<{ done?: string; rows?: string }>;
 }) {
   const { id } = await params;
-  const { done } = await searchParams;
+  const { done, rows } = await searchParams;
   const hideDone = done === "hide";
+  const parsedRows = Number.parseInt(rows ?? "", 10);
+  const limit =
+    Number.isFinite(parsedRows) && parsedRows > 0 ? parsedRows : PAGE_SIZE;
   const supabase = await createClient();
 
   const { data: team } = await supabase
@@ -79,14 +84,18 @@ export default async function TeamDetailPage({
 
   // Requests authored by anyone on this team. Ordered by team_priority asc
   // (the team's dense sequence) so the team's priority order is immediately
-  // visible here too.
-  const { data: requests } = await supabase
+  // visible here too. Fetch one row past the limit to know whether a "Show
+  // more" link is needed; the extra row is sliced off before display.
+  const { data: requestRows } = await supabase
     .from("requests")
     .select(TEAM_REQUEST_SELECT)
     .eq("team_id", id)
     .order("team_priority", { ascending: true })
     .order("updated_at", { ascending: false })
+    .limit(limit + 1)
     .returns<TeamRequestRow[]>();
+  const hasMoreRequests = (requestRows ?? []).length > limit;
+  const allRequests = (requestRows ?? []).slice(0, limit);
 
   // Requests where this team is tagged as a dependency (authored by some
   // other team). Two-step: get the tag rows, then fetch the requests by id
@@ -115,7 +124,6 @@ export default async function TeamDetailPage({
   // "Completed" = any request in a terminal status (Done / Won't do). Team
   // members can hide these to declutter the active backlog.
   const isDone = (r: TeamRequestRow) => r.status?.is_terminal === true;
-  const allRequests = requests ?? [];
   const doneCount = allRequests.filter(isDone).length;
   const depDoneCount = dependencyRequests.filter(isDone).length;
   const visibleRequests = hideDone
@@ -166,6 +174,18 @@ export default async function TeamDetailPage({
               </div>
             ) : (
               <RequestTable rows={visibleRequests} showPriority />
+            )}
+            {hasMoreRequests && (
+              <div className="border-t p-3 text-center">
+                <Link
+                  href={`/admin/teams/${team.id}?rows=${limit + PAGE_SIZE}${
+                    done ? `&done=${done}` : ""
+                  }`}
+                  className="text-sm text-muted-foreground hover:underline"
+                >
+                  Show more ({visibleRequests.length} shown)
+                </Link>
+              </div>
             )}
           </CardContent>
         </Card>

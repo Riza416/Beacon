@@ -18,6 +18,51 @@ type DB = SupabaseClient<Database>;
 type GroupRow = { id: string; team_priority: number; updated_at: string };
 type WsRow = { id: string; workstream_priority: number; updated_at: string };
 
+type RankColumn = "team_priority" | "workstream_priority";
+
+/**
+ * Given rows in their FINAL order (each carrying its current rank), the writes
+ * needed to make ranks a dense 0..N-1 sequence — changed rows only. Pure;
+ * exported for unit tests.
+ */
+export function planRankUpdates(
+  ordered: { id: string; rank: number }[]
+): { id: string; rank: number }[] {
+  const updates: { id: string; rank: number }[] = [];
+  for (let i = 0; i < ordered.length; i++) {
+    if (ordered[i].rank !== i) updates.push({ id: ordered[i].id, rank: i });
+  }
+  return updates;
+}
+
+/**
+ * Apply a rank plan in parallel instead of one sequential round-trip per row.
+ * A drag typically shifts a contiguous span, so this is a handful of writes
+ * running concurrently rather than N awaits in series.
+ */
+async function applyRankUpdates(
+  db: DB,
+  column: RankColumn,
+  updates: { id: string; rank: number }[]
+): Promise<void> {
+  if (updates.length === 0) return;
+  const results = await Promise.all(
+    updates.map((u) =>
+      db
+        .from("requests")
+        .update(
+          column === "team_priority"
+            ? { team_priority: u.rank }
+            : { workstream_priority: u.rank }
+        )
+        .eq("id", u.id)
+    )
+  );
+  for (const r of results) {
+    if (r.error) throw new Error(r.error.message);
+  }
+}
+
 /** Ids of statuses configured as terminal — excluded from every ranking. */
 async function terminalStatusIds(db: DB): Promise<Set<string>> {
   const { data, error } = await db
@@ -73,14 +118,11 @@ export async function compact(
   productId: string | null
 ): Promise<void> {
   const rows = await loadGroup(db, teamId, productId);
-  for (let i = 0; i < rows.length; i++) {
-    if (rows[i].team_priority === i) continue;
-    const { error: updErr } = await db
-      .from("requests")
-      .update({ team_priority: i })
-      .eq("id", rows[i].id);
-    if (updErr) throw new Error(updErr.message);
-  }
+  await applyRankUpdates(
+    db,
+    "team_priority",
+    planRankUpdates(rows.map((r) => ({ id: r.id, rank: r.team_priority })))
+  );
 }
 
 /**
@@ -105,14 +147,11 @@ export async function resequence(
   const clamped = Math.max(0, Math.min(targetIndex, others.length));
   const ordered = [...others.slice(0, clamped), target, ...others.slice(clamped)];
 
-  for (let i = 0; i < ordered.length; i++) {
-    if (ordered[i].team_priority === i) continue;
-    const { error: updErr } = await db
-      .from("requests")
-      .update({ team_priority: i })
-      .eq("id", ordered[i].id);
-    if (updErr) throw new Error(updErr.message);
-  }
+  await applyRankUpdates(
+    db,
+    "team_priority",
+    planRankUpdates(ordered.map((r) => ({ id: r.id, rank: r.team_priority })))
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -159,14 +198,11 @@ export async function compactWorkstream(
 ): Promise<void> {
   if (!productId) return;
   const rows = await loadWorkstream(db, productId);
-  for (let i = 0; i < rows.length; i++) {
-    if (rows[i].workstream_priority === i) continue;
-    const { error: updErr } = await db
-      .from("requests")
-      .update({ workstream_priority: i })
-      .eq("id", rows[i].id);
-    if (updErr) throw new Error(updErr.message);
-  }
+  await applyRankUpdates(
+    db,
+    "workstream_priority",
+    planRankUpdates(rows.map((r) => ({ id: r.id, rank: r.workstream_priority })))
+  );
 }
 
 /** Move `requestId` to `targetIndex` within its workstream; dense, no dupes. */
@@ -188,12 +224,11 @@ export async function resequenceWorkstream(
   const clamped = Math.max(0, Math.min(targetIndex, others.length));
   const ordered = [...others.slice(0, clamped), target, ...others.slice(clamped)];
 
-  for (let i = 0; i < ordered.length; i++) {
-    if (ordered[i].workstream_priority === i) continue;
-    const { error: updErr } = await db
-      .from("requests")
-      .update({ workstream_priority: i })
-      .eq("id", ordered[i].id);
-    if (updErr) throw new Error(updErr.message);
-  }
+  await applyRankUpdates(
+    db,
+    "workstream_priority",
+    planRankUpdates(
+      ordered.map((r) => ({ id: r.id, rank: r.workstream_priority }))
+    )
+  );
 }

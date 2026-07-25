@@ -25,38 +25,40 @@ export default async function NewRequestPage({
   const { project: projectParam } = await searchParams;
   const supabase = await createClient();
 
-  const { data: productRows } = await supabase
-    .from("products")
-    .select("id, name, show_deadline, show_dependent_teams")
-    .order("name")
-    .returns<
-      {
-        id: string;
-        name: string;
-        show_deadline: boolean;
-        show_dependent_teams: boolean;
-      }[]
-    >();
+  // Workstreams, teams, and the caller's own projects (for the optional
+  // Project picker) are independent lookups — fetch them in parallel.
+  const [{ data: productRows }, { data: allTeams }, { data: projects }] =
+    await Promise.all([
+      supabase
+        .from("products")
+        .select("id, name, show_deadline, show_dependent_teams")
+        .order("name")
+        .returns<
+          {
+            id: string;
+            name: string;
+            show_deadline: boolean;
+            show_dependent_teams: boolean;
+          }[]
+        >(),
+      supabase
+        .from("teams")
+        .select("id, name")
+        .order("name", { ascending: true })
+        .returns<{ id: string; name: string }[]>(),
+      supabase
+        .from("projects")
+        .select("id, name")
+        .eq("owner_id", profile.id)
+        .order("updated_at", { ascending: false })
+        .returns<{ id: string; name: string }[]>(),
+    ]);
   const products = (productRows ?? []).map((p) => ({
     id: p.id,
     name: p.name,
     show_deadline: p.show_deadline,
     show_dependent_teams: p.show_dependent_teams,
   }));
-
-  const { data: allTeams } = await supabase
-    .from("teams")
-    .select("id, name")
-    .order("name", { ascending: true })
-    .returns<{ id: string; name: string }[]>();
-
-  // The caller's own projects, for the optional Project picker.
-  const { data: projects } = await supabase
-    .from("projects")
-    .select("id, name")
-    .eq("owner_id", profile.id)
-    .order("updated_at", { ascending: false })
-    .returns<{ id: string; name: string }[]>();
 
   return (
     <div className="space-y-6">

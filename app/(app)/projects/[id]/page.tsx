@@ -69,18 +69,37 @@ export default async function ProjectDetailPage({
   const canManage =
     profile.role === "admin" || project.owner_id === profile.id;
 
-  const { data: requestData } = await supabase
-    .from("requests")
-    .select(
-      "id, title, state, updated_at, " +
-        "status:statuses(id, label, color), " +
-        "product:products(id, name), " +
-        "team:teams!requests_team_id_fkey(id, name), " +
-        "author:profiles!requests_author_id_fkey(full_name, email)"
-    )
-    .eq("project_id", id)
-    .order("updated_at", { ascending: false })
-    .returns<ProjectRequestRow[]>();
+  // The project's requests and the attach candidates (the caller's own
+  // requests, managers only) are independent — fetch them in parallel.
+  const [{ data: requestData }, { data: mine }] = await Promise.all([
+    supabase
+      .from("requests")
+      .select(
+        "id, title, state, updated_at, " +
+          "status:statuses(id, label, color), " +
+          "product:products(id, name), " +
+          "team:teams!requests_team_id_fkey(id, name), " +
+          "author:profiles!requests_author_id_fkey(full_name, email)"
+      )
+      .eq("project_id", id)
+      .order("updated_at", { ascending: false })
+      .returns<ProjectRequestRow[]>(),
+    canManage
+      ? supabase
+          .from("requests")
+          .select("id, title, project_id, product:products(id, name)")
+          .eq("author_id", profile.id)
+          .order("updated_at", { ascending: false })
+          .returns<
+            {
+              id: string;
+              title: string;
+              project_id: string | null;
+              product: { id: string; name: string } | null;
+            }[]
+          >()
+      : Promise.resolve({ data: null }),
+  ]);
 
   const requests = requestData ?? [];
 
@@ -127,30 +146,13 @@ export default async function ProjectDetailPage({
   );
 
   // Candidates to attach: the caller's own requests not already in this project.
-  let candidates: { id: string; title: string; productName: string | null }[] =
-    [];
-  if (canManage) {
-    const { data: mine } = await supabase
-      .from("requests")
-      .select("id, title, project_id, product:products(id, name)")
-      .eq("author_id", profile.id)
-      .order("updated_at", { ascending: false })
-      .returns<
-        {
-          id: string;
-          title: string;
-          project_id: string | null;
-          product: { id: string; name: string } | null;
-        }[]
-      >();
-    candidates = (mine ?? [])
-      .filter((r) => r.project_id !== id)
-      .map((r) => ({
-        id: r.id,
-        title: r.title,
-        productName: r.product?.name ?? null,
-      }));
-  }
+  const candidates = (mine ?? [])
+    .filter((r) => r.project_id !== id)
+    .map((r) => ({
+      id: r.id,
+      title: r.title,
+      productName: r.product?.name ?? null,
+    }));
 
   return (
     <div className="space-y-8">

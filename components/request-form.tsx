@@ -32,8 +32,11 @@ import {
   submitRequest,
   setFieldFile,
   getRequestTemplate,
+  findSimilarRequests,
+  supportRequest,
+  type SimilarRequest,
 } from "@/app/(app)/requests/actions";
-import { X, Lock } from "lucide-react";
+import { X, Lock, ThumbsUp, ExternalLink } from "lucide-react";
 import { ScreenshotInput } from "@/components/screenshot-input";
 import { RepoActions } from "@/components/repo-actions";
 import type { SubmitResult } from "@/lib/request-actions-types";
@@ -173,6 +176,53 @@ export function RequestForm({
   }
 
   const [title, setTitle] = React.useState(request?.title ?? "");
+
+  // Duplicate detection: while composing a BRAND-NEW request, look up existing
+  // submitted requests sharing significant title words, so the author can +1
+  // one of those instead of filing a duplicate. Debounced; new-mode only.
+  const [similar, setSimilar] = React.useState<SimilarRequest[]>([]);
+  const [supportedIds, setSupportedIds] = React.useState<Set<string>>(
+    () => new Set()
+  );
+  React.useEffect(() => {
+    if (existingId) return; // only when composing something new
+    const term = title.trim();
+    if (term.length < 8) {
+      setSimilar([]);
+      return;
+    }
+    let cancelled = false;
+    const t = setTimeout(() => {
+      findSimilarRequests(term, effectiveId)
+        .then((rows) => {
+          if (!cancelled) setSimilar(rows);
+        })
+        .catch(() => {
+          // best-effort — never block composing on the similarity lookup
+        });
+    }, 450);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [title, existingId, effectiveId]);
+
+  function supportSimilar(r: SimilarRequest) {
+    setSupportedIds((prev) => new Set(prev).add(r.id));
+    supportRequest(r.id)
+      .then(() =>
+        toast.success("+1 added — consider supporting instead of duplicating")
+      )
+      .catch(() => {
+        setSupportedIds((prev) => {
+          const next = new Set(prev);
+          next.delete(r.id);
+          return next;
+        });
+        toast.error("Could not add your +1");
+      });
+  }
   const [summary, setSummary] = React.useState(request?.summary ?? "");
   const [productId, setProductId] = React.useState<string | null>(
     request?.product_id ?? null
@@ -734,6 +784,50 @@ export function RequestForm({
           }}
           placeholder="Untitled draft"
         />
+        {similar.length > 0 && (
+          <div className="space-y-2 rounded-md border border-primary/30 bg-primary/5 p-3">
+            <p className="text-xs font-medium">
+              Similar existing requests — if one covers your need, +1 it
+              instead of filing a duplicate:
+            </p>
+            <ul className="space-y-1.5">
+              {similar.map((r) => {
+                const supported = supportedIds.has(r.id);
+                return (
+                  <li key={r.id} className="flex items-center gap-2 text-sm">
+                    <a
+                      href={`/requests/${r.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex min-w-0 items-center gap-1 hover:underline"
+                    >
+                      <span className="truncate font-medium">{r.title}</span>
+                      <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" />
+                    </a>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {[r.productName, r.statusLabel]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => !supported && supportSimilar(r)}
+                      disabled={supported}
+                      className={
+                        supported
+                          ? "ml-auto inline-flex shrink-0 items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary"
+                          : "ml-auto inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+                      }
+                    >
+                      <ThumbsUp className="h-3 w-3" />
+                      {supported ? `+1'd` : `+1 · ${r.supporters}`}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
       </div>
 
       <div className="space-y-2">
