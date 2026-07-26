@@ -175,6 +175,7 @@ export type Database = {
           can_edit_products: boolean;
           can_delete_products: boolean;
           slack_user_id: string | null;
+          approved_at: string | null;
         };
         Insert: {
           id: string;
@@ -188,6 +189,7 @@ export type Database = {
           can_edit_products?: boolean;
           can_delete_products?: boolean;
           slack_user_id?: string | null;
+          approved_at?: string | null;
         };
         Update: {
           id?: string;
@@ -201,6 +203,7 @@ export type Database = {
           can_edit_products?: boolean;
           can_delete_products?: boolean;
           slack_user_id?: string | null;
+          approved_at?: string | null;
         };
         Relationships: [
           {

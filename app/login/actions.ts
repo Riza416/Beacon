@@ -1,5 +1,8 @@
 "use server";
 
+import { createAdminClient } from "@/lib/supabase/admin";
+import { emailConfigured, escapeHtml, sendEmail } from "@/lib/email";
+
 /**
  * Sign-up that skips Supabase's email-verification step. Creates the user
  * via the admin endpoint with `email_confirm: true` so they can immediately
@@ -41,6 +44,9 @@ export async function signUpAndConfirm(
   });
 
   if (res.ok) {
+    // New accounts sit behind global-admin approval (see 0032). Give the
+    // admins a heads-up so sign-ups don't sit unnoticed. Best-effort.
+    await notifyAdminsOfSignup(trimmedEmail).catch(() => {});
     return { ok: true };
   }
 
@@ -56,4 +62,47 @@ export async function signUpAndConfirm(
     // ignore
   }
   return { ok: false, error: message };
+}
+
+/** Email every global admin that a new account is awaiting approval. */
+async function notifyAdminsOfSignup(newEmail: string): Promise<void> {
+  if (!emailConfigured()) return;
+  const admin = createAdminClient();
+  const { data: admins } = await admin
+    .from("profiles")
+    .select("email")
+    .eq("role", "admin")
+    .returns<{ email: string | null }[]>();
+  const recipients = (admins ?? [])
+    .map((a) => a.email)
+    .filter((e): e is string => Boolean(e));
+  if (recipients.length === 0) return;
+
+  const base = (process.env.NEXT_PUBLIC_SITE_URL ?? "").replace(/\/$/, "");
+  const link = base ? `${base}/admin/teams` : "";
+  const text = [
+    `A new Beacon account is awaiting approval: ${newEmail}`,
+    "",
+    "They can't see anything until you approve them.",
+    link ? `Approve or reject: ${link}` : null,
+    "",
+    "— Beacon",
+  ]
+    .filter((l) => l !== null)
+    .join("\n");
+
+  await Promise.allSettled(
+    recipients.map((to) =>
+      sendEmail({
+        to,
+        subject: `Beacon sign-up awaiting approval: ${newEmail}`,
+        html: `<p>A new Beacon account is awaiting approval: <strong>${escapeHtml(
+          newEmail
+        )}</strong></p><p>They can't see anything until you approve them.</p>${
+          link ? `<p><a href="${link}">Approve or reject</a></p>` : ""
+        }`,
+        text,
+      })
+    )
+  );
 }

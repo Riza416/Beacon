@@ -195,9 +195,12 @@ export function AppSidebar({
         {!collapsed && (email || role) && (
           <div className="flex min-w-0 items-center justify-between gap-2 px-1">
             {email && (
-              <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+              <Link
+                href="/profile"
+                className="min-w-0 flex-1 truncate text-xs text-muted-foreground hover:underline"
+              >
                 {email}
-              </span>
+              </Link>
             )}
             <Badge variant={isAdmin ? "default" : "secondary"}>{role}</Badge>
           </div>

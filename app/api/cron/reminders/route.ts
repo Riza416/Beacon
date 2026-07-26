@@ -50,6 +50,51 @@ export async function GET(req: Request) {
 
   let unackSent = 0;
   let deadlineSent = 0;
+  let draftsExpired = 0;
+
+  // 0) Expire abandoned EMPTY drafts (untitled, no summary, no field content,
+  // no comments) untouched for 14+ days, so they never pile up as clutter.
+  const draftCutoff = new Date(now - 14 * DAY).toISOString();
+  const { data: staleDrafts } = await admin
+    .from("requests")
+    .select("id")
+    .eq("state", "draft")
+    .eq("title", "Untitled draft")
+    .or("summary.is.null,summary.eq.")
+    .lt("updated_at", draftCutoff)
+    .limit(MAX_PER_RUN)
+    .returns<{ id: string }[]>();
+  const staleIds = (staleDrafts ?? []).map((d) => d.id);
+  if (staleIds.length > 0) {
+    // Keep any draft that actually has content or discussion.
+    const [{ data: valueRows }, { data: commentRows }] = await Promise.all([
+      admin
+        .from("request_field_values")
+        .select("request_id, value_text, file_path")
+        .in("request_id", staleIds)
+        .returns<
+          { request_id: string; value_text: string | null; file_path: string | null }[]
+        >(),
+      admin
+        .from("comments")
+        .select("request_id")
+        .in("request_id", staleIds)
+        .returns<{ request_id: string }[]>(),
+    ]);
+    const keep = new Set<string>();
+    for (const v of valueRows ?? []) {
+      if ((v.value_text ?? "").length > 0 || v.file_path) keep.add(v.request_id);
+    }
+    for (const cm of commentRows ?? []) keep.add(cm.request_id);
+    const doomed = staleIds.filter((id) => !keep.has(id));
+    if (doomed.length > 0) {
+      const { error: delErr } = await admin
+        .from("requests")
+        .delete()
+        .in("id", doomed);
+      if (!delErr) draftsExpired = doomed.length;
+    }
+  }
 
   // 1) Un-acknowledged for 7+ days --------------------------------------------
   const unackCutoff = new Date(now - 7 * DAY).toISOString();
@@ -125,5 +170,5 @@ export async function GET(req: Request) {
     deadlineSent += 1;
   }
 
-  return NextResponse.json({ ok: true, unackSent, deadlineSent });
+  return NextResponse.json({ ok: true, unackSent, deadlineSent, draftsExpired });
 }

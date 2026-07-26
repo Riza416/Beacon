@@ -6,6 +6,10 @@ import { TEAM_WITH_MEMBER_COUNT_SELECT } from "@/lib/queries";
 import { CreateTeamDialog } from "./_components/create-team-dialog";
 import { CompaniesManager } from "./_components/companies-manager";
 import { TeamsList } from "./_components/teams-list";
+import {
+  PendingApprovals,
+  type PendingProfile,
+} from "./_components/pending-approvals";
 
 type TeamWithMembers = Team & {
   members: { count: number }[] | null;
@@ -13,7 +17,7 @@ type TeamWithMembers = Team & {
 
 export default async function AdminTeamsPage() {
   const supabase = await createClient();
-  const [{ data: teams }, { data: companies }, { data: profiles }] =
+  const [{ data: teams }, { data: companies }, { data: profiles }, { data: pendingRows }] =
     await Promise.all([
       supabase
         .from("teams")
@@ -35,6 +39,14 @@ export default async function AdminTeamsPage() {
         .returns<
           { full_name: string | null; email: string | null; team_id: string | null }[]
         >(),
+      // New sign-ups awaiting approval (admins bypass, so exclude them).
+      supabase
+        .from("profiles")
+        .select("id, email, full_name, created_at")
+        .is("approved_at", null)
+        .neq("role", "admin")
+        .order("created_at", { ascending: true })
+        .returns<PendingProfile[]>(),
     ]);
   const companyNameById = new Map(
     (companies ?? []).map((c) => [c.id, c.name])
@@ -89,6 +101,8 @@ export default async function AdminTeamsPage() {
         </div>
         <CreateTeamDialog companies={companies ?? []} />
       </header>
+
+      <PendingApprovals pending={pendingRows ?? []} />
 
       <section className="space-y-5">
         {teamCount === 0 ? (

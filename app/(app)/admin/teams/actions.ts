@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { adminAction, authedAction, requireTeamManager } from "@/lib/actions/utils";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 // Postgres unique_violation
 const UNIQUE_VIOLATION = "23505";
@@ -18,6 +19,46 @@ function friendlyTeamError(err: { code?: string; message: string }, name: string
 function parseCompanyId(formData: FormData): string | null {
   const raw = String(formData.get("company_id") ?? "").trim();
   return raw && raw !== "__none__" ? raw : null;
+}
+
+/** Approve a pending account. Global admin only. */
+export async function approveMember(profileId: string): Promise<{ ok: true }> {
+  if (!profileId) throw new Error("Profile required");
+  const { supabase } = await adminAction();
+  const { error } = await supabase
+    .from("profiles")
+    .update({ approved_at: new Date().toISOString() })
+    .eq("id", profileId);
+  if (error) throw new Error(error.message);
+  revalidatePath("/admin/teams");
+  return { ok: true };
+}
+
+/**
+ * Reject a pending account: deletes the auth user entirely (the profile row
+ * cascades). Global admin only, and only for accounts that are NOT yet
+ * approved — rejecting an active member is done via team management instead.
+ */
+export async function rejectMember(profileId: string): Promise<{ ok: true }> {
+  if (!profileId) throw new Error("Profile required");
+  const { supabase } = await adminAction();
+
+  const { data: target, error: readErr } = await supabase
+    .from("profiles")
+    .select("id, approved_at, role")
+    .eq("id", profileId)
+    .maybeSingle<{ id: string; approved_at: string | null; role: string }>();
+  if (readErr) throw new Error(readErr.message);
+  if (!target) throw new Error("Account not found");
+  if (target.approved_at || target.role === "admin") {
+    throw new Error("Only pending (unapproved) accounts can be rejected.");
+  }
+
+  const admin = createAdminClient();
+  const { error } = await admin.auth.admin.deleteUser(profileId);
+  if (error) throw new Error(error.message);
+  revalidatePath("/admin/teams");
+  return { ok: true };
 }
 
 export async function createTeam(formData: FormData) {
