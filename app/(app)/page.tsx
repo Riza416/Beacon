@@ -710,9 +710,19 @@ function WorkstreamsBoard({
               <div className="min-w-0 space-y-1.5">
                 <div className="flex items-center gap-2">
                   <Layers className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <h3 className="truncate text-sm font-semibold">
-                    {productName(productId)}
-                  </h3>
+                  {productId ? (
+                    <Link
+                      href={`/workstreams/${productId}`}
+                      className="truncate text-sm font-semibold hover:underline"
+                      title={`Open the ${productName(productId)} workstream`}
+                    >
+                      {productName(productId)}
+                    </Link>
+                  ) : (
+                    <h3 className="truncate text-sm font-semibold">
+                      {productName(productId)}
+                    </h3>
+                  )}
                 </div>
                 <WorkstreamOwners
                   productId={productId}

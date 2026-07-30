@@ -84,6 +84,9 @@ interface RequestFormProps {
   /** Project preselected for this request (its current project, or one passed
    * via ?project= when composing from a project page). */
   initialProjectId?: string | null;
+  /** Workstream preselected via ?product= (e.g. arriving from a workstream
+   * homepage). Ignored if it isn't one of the offered workstreams. */
+  initialProductId?: string | null;
 }
 
 type FormValue = string | boolean | string[];
@@ -145,6 +148,7 @@ export function RequestForm({
   authorTeamId,
   projects = [],
   initialProjectId = null,
+  initialProductId = null,
 }: RequestFormProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -224,9 +228,13 @@ export function RequestForm({
       });
   }
   const [summary, setSummary] = React.useState(request?.summary ?? "");
-  const [productId, setProductId] = React.useState<string | null>(
-    request?.product_id ?? null
-  );
+  const [productId, setProductId] = React.useState<string | null>(() => {
+    if (request?.product_id) return request.product_id;
+    // Honour ?product= only when it's a workstream we actually offer.
+    return initialProductId && products.some((p) => p.id === initialProductId)
+      ? initialProductId
+      : null;
+  });
   // Only preselect a project we can actually offer (one the caller owns). A
   // ?project= for someone else's project — or a stale one — falls back to none.
   const [projectId, setProjectId] = React.useState<string | null>(() =>

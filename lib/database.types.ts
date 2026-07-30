@@ -24,17 +24,17 @@ export type Database = {
         };
         Relationships: [
           {
-            foreignKeyName: "comment_mentions_comment_id_fkey";
-            columns: ["comment_id"];
-            isOneToOne: false;
-            referencedRelation: "comments";
-            referencedColumns: ["id"];
-          },
-          {
             foreignKeyName: "comment_mentions_user_id_fkey";
             columns: ["user_id"];
             isOneToOne: false;
             referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "comment_mentions_comment_id_fkey";
+            columns: ["comment_id"];
+            isOneToOne: false;
+            referencedRelation: "comments";
             referencedColumns: ["id"];
           },
         ];
@@ -63,17 +63,17 @@ export type Database = {
         };
         Relationships: [
           {
-            foreignKeyName: "comments_request_id_fkey";
-            columns: ["request_id"];
-            isOneToOne: false;
-            referencedRelation: "requests";
-            referencedColumns: ["id"];
-          },
-          {
             foreignKeyName: "comments_author_id_fkey";
             columns: ["author_id"];
             isOneToOne: false;
             referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "comments_request_id_fkey";
+            columns: ["request_id"];
+            isOneToOne: false;
+            referencedRelation: "requests";
             referencedColumns: ["id"];
           },
         ];
@@ -274,17 +274,17 @@ export type Database = {
         };
         Relationships: [
           {
-            foreignKeyName: "request_collaborators_request_id_fkey";
-            columns: ["request_id"];
-            isOneToOne: false;
-            referencedRelation: "requests";
-            referencedColumns: ["id"];
-          },
-          {
             foreignKeyName: "request_collaborators_user_id_fkey";
             columns: ["user_id"];
             isOneToOne: false;
             referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "request_collaborators_request_id_fkey";
+            columns: ["request_id"];
+            isOneToOne: false;
+            referencedRelation: "requests";
             referencedColumns: ["id"];
           },
         ];
@@ -503,17 +503,17 @@ export type Database = {
         };
         Relationships: [
           {
-            foreignKeyName: "request_supporters_user_id_fkey";
-            columns: ["user_id"];
-            isOneToOne: false;
-            referencedRelation: "profiles";
-            referencedColumns: ["id"];
-          },
-          {
             foreignKeyName: "request_supporters_request_id_fkey";
             columns: ["request_id"];
             isOneToOne: false;
             referencedRelation: "requests";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "request_supporters_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
             referencedColumns: ["id"];
           },
         ];
@@ -645,17 +645,17 @@ export type Database = {
         };
         Relationships: [
           {
-            foreignKeyName: "request_watchers_user_id_fkey";
-            columns: ["user_id"];
-            isOneToOne: false;
-            referencedRelation: "profiles";
-            referencedColumns: ["id"];
-          },
-          {
             foreignKeyName: "request_watchers_request_id_fkey";
             columns: ["request_id"];
             isOneToOne: false;
             referencedRelation: "requests";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "request_watchers_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
             referencedColumns: ["id"];
           },
         ];
@@ -738,10 +738,24 @@ export type Database = {
         };
         Relationships: [
           {
+            foreignKeyName: "requests_status_id_fkey";
+            columns: ["status_id"];
+            isOneToOne: false;
+            referencedRelation: "statuses";
+            referencedColumns: ["id"];
+          },
+          {
             foreignKeyName: "requests_team_id_fkey";
             columns: ["team_id"];
             isOneToOne: false;
             referencedRelation: "teams";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "requests_project_id_fkey";
+            columns: ["project_id"];
+            isOneToOne: false;
+            referencedRelation: "projects";
             referencedColumns: ["id"];
           },
           {
@@ -763,20 +777,6 @@ export type Database = {
             columns: ["owner_id"];
             isOneToOne: false;
             referencedRelation: "profiles";
-            referencedColumns: ["id"];
-          },
-          {
-            foreignKeyName: "requests_status_id_fkey";
-            columns: ["status_id"];
-            isOneToOne: false;
-            referencedRelation: "statuses";
-            referencedColumns: ["id"];
-          },
-          {
-            foreignKeyName: "requests_project_id_fkey";
-            columns: ["project_id"];
-            isOneToOne: false;
-            referencedRelation: "projects";
             referencedColumns: ["id"];
           },
         ];
@@ -878,6 +878,54 @@ export type Database = {
           },
         ];
       };
+      workstream_faqs: {
+        Row: {
+          id: string;
+          product_id: string;
+          question: string;
+          answer: string;
+          display_order: number;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          product_id: string;
+          question: string;
+          answer?: string;
+          display_order?: number;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          product_id?: string;
+          question?: string;
+          answer?: string;
+          display_order?: number;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "workstream_faqs_product_id_fkey";
+            columns: ["product_id"];
+            isOneToOne: false;
+            referencedRelation: "products";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "workstream_faqs_created_by_fkey";
+            columns: ["created_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       workstream_field_config: {
         Row: {
           product_id: string;
@@ -905,17 +953,17 @@ export type Database = {
         };
         Relationships: [
           {
-            foreignKeyName: "workstream_field_config_product_id_fkey";
-            columns: ["product_id"];
-            isOneToOne: false;
-            referencedRelation: "products";
-            referencedColumns: ["id"];
-          },
-          {
             foreignKeyName: "workstream_field_config_field_definition_id_fkey";
             columns: ["field_definition_id"];
             isOneToOne: false;
             referencedRelation: "request_field_definitions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "workstream_field_config_product_id_fkey";
+            columns: ["product_id"];
+            isOneToOne: false;
+            referencedRelation: "products";
             referencedColumns: ["id"];
           },
         ];

@@ -332,7 +332,14 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
               </Badge>
             )}
             {request.product && (
-              <Badge variant="outline">{request.product.name}</Badge>
+              <Link
+                href={`/workstreams/${request.product.id}`}
+                title={`Open the ${request.product.name} workstream`}
+              >
+                <Badge variant="outline" className="hover:bg-accent">
+                  {request.product.name}
+                </Badge>
+              </Link>
             )}
             {request.project && (
               <Link href={`/projects/${request.project.id}`}>

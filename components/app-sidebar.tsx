@@ -14,6 +14,7 @@ import {
   ListChecks,
   CircleDot,
   BarChart3,
+  Settings2,
   BookOpen,
   LogOut,
   PanelLeftClose,
@@ -61,19 +62,30 @@ export function AppSidebar({
     { href: "/", label: "Dashboard", icon: LayoutDashboard },
     { href: "/requests/mine", label: "My requests", icon: Inbox },
     { href: "/projects", label: "Projects", icon: FolderKanban },
+    // The workstream directory is for everyone — it's where you learn what a
+    // team takes requests for before filing one.
+    { href: "/workstreams", label: "Workstreams", icon: Layers },
     { href: "/requests/new", label: "New request", icon: SquarePen },
   ];
   if (isTeamAdmin) {
     items.push({ href: "/team", label: "My team", icon: UsersRound });
   }
   if (!isAdmin && !isTeamAdmin && canManageTeamProducts) {
-    items.push({ href: "/team/products", label: "Workstreams", icon: Layers });
+    items.push({
+      href: "/team/products",
+      label: "Manage workstreams",
+      icon: Settings2,
+    });
   }
   if (isAdmin) {
     items.push(
       { href: "/admin/analytics", label: "Analytics", icon: BarChart3 },
       { href: "/admin/teams", label: "Teams", icon: Users },
-      { href: "/admin/products", label: "Workstreams", icon: Layers },
+      {
+        href: "/admin/products",
+        label: "Manage workstreams",
+        icon: Settings2,
+      },
       { href: "/admin/requirements", label: "Fields", icon: ListChecks },
       { href: "/admin/statuses", label: "Statuses", icon: CircleDot }
     );

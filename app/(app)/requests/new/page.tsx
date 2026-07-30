@@ -16,13 +16,13 @@ export const dynamic = "force-dynamic";
 export default async function NewRequestPage({
   searchParams,
 }: {
-  searchParams: Promise<{ project?: string }>;
+  searchParams: Promise<{ project?: string; product?: string }>;
 }) {
   // No draft row is created here — the form persists one lazily the first time
   // the author explicitly saves or submits (see createDraft/ensureId). This
   // means abandoned "new request" visits never leave a draft behind.
   const profile = await requireProfile();
-  const { project: projectParam } = await searchParams;
+  const { project: projectParam, product: productParam } = await searchParams;
   const supabase = await createClient();
 
   // Workstreams, teams, and the caller's own projects (for the optional
@@ -99,6 +99,7 @@ export default async function NewRequestPage({
             authorTeamId={profile.team_id}
             projects={projects ?? []}
             initialProjectId={projectParam ?? null}
+            initialProductId={productParam ?? null}
           />
         </CardContent>
       </Card>
