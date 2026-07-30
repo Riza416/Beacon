@@ -10,6 +10,8 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { RequestForm } from "@/components/request-form";
+import { resolveFieldsForProduct } from "@/lib/workstream-template";
+import type { FieldDefinition } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -25,10 +27,17 @@ export default async function NewRequestPage({
   const { project: projectParam, product: productParam } = await searchParams;
   const supabase = await createClient();
 
-  // Workstreams, teams, and the caller's own projects (for the optional
-  // Project picker) are independent lookups — fetch them in parallel.
-  const [{ data: productRows }, { data: allTeams }, { data: projects }] =
-    await Promise.all([
+  // Workstreams, teams, the caller's own projects (for the optional Project
+  // picker), and — when a workstream is preselected via ?product= — that
+  // workstream's template, are independent lookups. Resolving the template
+  // here matters: the form only refetches when the picker CHANGES, so a
+  // preselected workstream would otherwise render with no fields.
+  const [
+    { data: productRows },
+    { data: allTeams },
+    { data: projects },
+    preselectedFields,
+  ] = await Promise.all([
       supabase
         .from("products")
         .select("id, name, show_deadline, show_dependent_teams")
@@ -52,6 +61,9 @@ export default async function NewRequestPage({
         .eq("owner_id", profile.id)
         .order("updated_at", { ascending: false })
         .returns<{ id: string; name: string }[]>(),
+      productParam
+        ? resolveFieldsForProduct(supabase, productParam)
+        : Promise.resolve([] as FieldDefinition[]),
     ]);
   const products = (productRows ?? []).map((p) => ({
     id: p.id,
@@ -87,7 +99,7 @@ export default async function NewRequestPage({
         <CardContent>
           <RequestForm
             request={null}
-            fields={[]}
+            fields={preselectedFields}
             values={[]}
             canSubmit={true}
             hasTeam={Boolean(profile.team_id)}
