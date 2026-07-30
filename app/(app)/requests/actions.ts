@@ -34,6 +34,7 @@ const VALID_FIELD_TYPES: FieldType[] = [
   "multi_select",
   "checkbox",
   "repo",
+  "prd",
 ];
 
 function isFieldType(s: string): s is FieldType {

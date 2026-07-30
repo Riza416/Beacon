@@ -29,6 +29,7 @@ import { createField } from "../actions";
 const FIELD_TYPES: { value: FieldType; label: string }[] = [
   { value: "short_text", label: "Short text" },
   { value: "long_text", label: "Long text" },
+  { value: "prd", label: "Product requirements document" },
   { value: "url", label: "URL" },
   { value: "file", label: "File" },
   { value: "image", label: "Image" },

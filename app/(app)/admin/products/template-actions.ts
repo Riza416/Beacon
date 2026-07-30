@@ -13,6 +13,7 @@ type DB = SupabaseClient<Database>;
 const VALID_FIELD_TYPES: FieldType[] = [
   "short_text",
   "long_text",
+  "prd",
   "url",
   "file",
   "image",

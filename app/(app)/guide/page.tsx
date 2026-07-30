@@ -4,6 +4,7 @@ import {
   AtSign,
   Bell,
   BookOpen,
+  Compass,
   FolderKanban,
   Inbox,
   Layers,
@@ -29,10 +30,16 @@ const CHAPTERS = [
   { id: "projects", n: 6, title: "Projects", icon: FolderKanban },
   { id: "privacy", n: 7, title: "Private requests", icon: Lock },
   { id: "comments", n: 8, title: "Comments & mentions", icon: AtSign },
-  { id: "templates", n: 9, title: "Workstream templates", icon: Layers },
-  { id: "teams", n: 10, title: "Teams & companies", icon: Users },
-  { id: "alerts", n: 11, title: "Notifications", icon: Bell },
-  { id: "roles", n: 12, title: "Who can do what", icon: ShieldCheck },
+  {
+    id: "workstreams",
+    n: 9,
+    title: "Workstream homepages & FAQs",
+    icon: Compass,
+  },
+  { id: "templates", n: 10, title: "Workstream templates", icon: Layers },
+  { id: "teams", n: 11, title: "Teams & companies", icon: Users },
+  { id: "alerts", n: 12, title: "Notifications", icon: Bell },
+  { id: "roles", n: 13, title: "Who can do what", icon: ShieldCheck },
 ] as const;
 
 function Figure({
@@ -108,10 +115,11 @@ export default function GuidePage() {
         </h1>
         <p className="mt-4 max-w-2xl text-base text-muted-foreground sm:text-lg">
           Beacon is where teams submit product requests, and where workstream
-          owners triage and rank them. This guide covers submitting a request,
-          reading the dashboard, tracking your own asks, grouping related work
-          into projects, keeping sensitive requests private, and — for owners
-          and admins — shaping what each workstream collects.
+          owners triage and rank them. This guide covers finding the right
+          workstream, submitting a request, reading the dashboard, tracking your
+          own asks, grouping related work into projects, keeping sensitive
+          requests private, and — for owners and admins — shaping what each
+          workstream collects and the guidance it publishes.
         </p>
       </header>
 
@@ -147,14 +155,27 @@ export default function GuidePage() {
             <p>
               Beacon lives in a <strong>collapsible sidebar on the left</strong>.
               From the top down it holds <strong>Dashboard</strong>,{" "}
-              <strong>My requests</strong>, <strong>Projects</strong>, and{" "}
-              <strong>New request</strong>; then <strong>My team</strong> (for
-              team admins) and your <strong>Workstreams</strong>; then the admin
-              tools — <strong>Teams</strong>, <strong>Workstreams</strong>,{" "}
-              <strong>Fields</strong>, and <strong>Statuses</strong>. The{" "}
-              <strong>Guide</strong> sits at the very bottom.
+              <strong>My requests</strong>, <strong>Projects</strong>,{" "}
+              <strong>Workstreams</strong>, and <strong>New request</strong>;
+              then <strong>My team</strong> (for team admins) or{" "}
+              <strong>Manage workstreams</strong> (for members granted edit
+              rights on their team&apos;s workstreams); then the admin tools —{" "}
+              <strong>Analytics</strong>, <strong>Teams</strong>,{" "}
+              <strong>Manage workstreams</strong>, <strong>Fields</strong>, and{" "}
+              <strong>Statuses</strong>. The <strong>Guide</strong> sits at the
+              very bottom.
             </p>
             <ul className="space-y-2 pl-1">
+              <li>
+                <strong>Workstreams is the directory</strong>, open to everyone —
+                what each team takes requests for, and the guidance it publishes
+                (see{" "}
+                <a href="#workstreams" className="text-primary hover:underline">
+                  Workstream homepages &amp; FAQs
+                </a>
+                ). The pages where you <em>configure</em> a workstream are called{" "}
+                <strong>Manage workstreams</strong>.
+              </li>
               <li>
                 <strong>Collapse it</strong> to a slim icon rail whenever you want
                 more room; expand it again from the same control.
@@ -179,7 +200,11 @@ export default function GuidePage() {
               leads with the <strong>Workstream</strong> because that choice
               shapes everything below it — each workstream asks for its own
               details, defined by its owner. Pick a workstream and its fields
-              appear.
+              appear. Starting from a{" "}
+              <a href="#workstreams" className="text-primary hover:underline">
+                workstream&apos;s homepage
+              </a>{" "}
+              instead pre-selects it for you.
             </p>
             <Figure
               src="/guide-assets/g-newrequest.jpeg"
@@ -216,6 +241,19 @@ export default function GuidePage() {
                 (see{" "}
                 <a href="#privacy" className="text-primary hover:underline">
                   Private requests
+                </a>
+                ).
+              </li>
+              <li>
+                <strong>
+                  If the workstream asks for a product requirements document
+                </strong>
+                , you get a large text area with an expandable{" "}
+                <strong>&ldquo;Writing a PRD&rdquo;</strong> guide beside it and
+                a one-click <strong>starter outline</strong> you can drop in and
+                fill in — no blank page to stare at (see{" "}
+                <a href="#templates" className="text-primary hover:underline">
+                  Workstream templates
                 </a>
                 ).
               </li>
@@ -412,14 +450,96 @@ export default function GuidePage() {
           </section>
 
           <section>
-            <ChapterHeading {...CHAPTERS[8]} audience="Workstream owners" />
+            <ChapterHeading {...CHAPTERS[8]} />
+            <p>
+              <strong>Workstreams</strong> in the sidebar opens a{" "}
+              <strong>directory</strong>: every workstream, what it&apos;s for,
+              the team(s) that own it, how many active requests it&apos;s
+              carrying, and how many FAQs it publishes. It answers &ldquo;who do
+              I ask for what?&rdquo; — read it before filing, so your request
+              lands in the right place.
+            </p>
+            <p className="mt-3">
+              Clicking a workstream opens its <strong>homepage</strong>, which
+              gathers everything a requester needs in one place:
+            </p>
+            <ul className="space-y-2 pl-1">
+              <li>
+                <strong>What it is and who owns it</strong> — the description and
+                the owning team(s), plus{" "}
+                <strong>Active / Awaiting triage / Completed</strong> counts.
+              </li>
+              <li>
+                <strong>&ldquo;What to include&rdquo;</strong> — the exact fields
+                that workstream&apos;s request form asks for, with{" "}
+                <strong>required</strong> and{" "}
+                <strong>recommended</strong> marked, so you can gather your
+                material before you start.
+              </li>
+              <li>
+                <strong>Repository shortcuts</strong> — where the workstream has a
+                repo link, &ldquo;Request access&rdquo; / &ldquo;Branch
+                off&rdquo; sit right on the page.
+              </li>
+              <li>
+                <strong>The current backlog</strong> — active requests in the
+                owning team&apos;s priority order, with{" "}
+                <strong>+1 demand counts</strong> and deadlines. Worth a scan:
+                someone may already have asked for your thing.
+              </li>
+              <li>
+                <strong>The FAQs</strong> — the owning team&apos;s own guidance,
+                as collapsible entries.
+              </li>
+            </ul>
+            <p className="mt-3">
+              The <strong>New request</strong> button on a homepage pre-selects
+              that workstream for you.
+            </p>
+            <h3 className="mt-6 text-base font-semibold">
+              Writing the FAQs{" "}
+              <span className="ml-1 rounded-full bg-muted px-2 py-0.5 align-middle text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                Workstream owners
+              </span>
+            </h3>
+            <p className="mt-2">
+              <strong>FAQs are written by the owning team</strong> — a global
+              admin, or an owning-team member who can edit workstreams. They{" "}
+              <strong>add, edit, reorder and delete</strong> entries inline on the
+              homepage, with a <strong>live preview</strong> as they type.
+              Everyone else just reads them.
+            </p>
+            <p className="mt-3">
+              Answers take a little formatting:{" "}
+              <strong>blank lines separate paragraphs</strong>,{" "}
+              <code className="font-mono text-[13px]">- </code> starts a bullet
+              list, <code className="font-mono text-[13px]">**bold**</code> is
+              bold, <code className="font-mono text-[13px]">`code`</code> is
+              code, and{" "}
+              <code className="font-mono text-[13px]">
+                [label](https://…)
+              </code>{" "}
+              makes a link — bare https URLs link themselves. Only{" "}
+              <strong>http/https</strong> links are allowed; anything else is
+              left as plain text.
+            </p>
+            <p className="mt-4 rounded-lg border bg-muted/40 px-4 py-3 text-muted-foreground">
+              <strong>Admins and owners:</strong> the directory flags any
+              workstream with <strong>no owning team</strong>. Those can&apos;t be
+              triaged or alerted — assign an owning team from{" "}
+              <em>Manage workstreams</em>.
+            </p>
+          </section>
+
+          <section>
+            <ChapterHeading {...CHAPTERS[9]} audience="Workstream owners" />
             <p>
               Each workstream decides what a request into it must include. Open
               its <strong>Template</strong> page from where you manage workstreams
               — team admins via <em>My team → Manage workstreams</em>; global
-              admins (and members granted edit rights) via the{" "}
-              <em>Workstreams</em> nav — then click <strong>Template</strong> on
-              the workstream.
+              admins (and members granted edit rights) via{" "}
+              <em>Manage workstreams</em> — then click <strong>Template</strong>{" "}
+              on the workstream.
             </p>
             <Figure
               src="/guide-assets/g-template.jpeg"
@@ -443,10 +563,30 @@ export default function GuidePage() {
                 <strong>Show draft</strong> previews the exact author form.
               </li>
             </ul>
+            <h3 className="mt-6 text-base font-semibold">
+              Product requirements documents
+            </h3>
+            <p className="mt-2">
+              <strong>Product requirements document</strong> is a field type, like
+              short text or screenshot — add it to a template and the request form
+              grows a large text area, an expandable{" "}
+              <strong>&ldquo;Writing a PRD&rdquo;</strong> guide, and a one-click{" "}
+              <strong>starter outline</strong> the requester can insert and fill
+              in. Someone writing their first PRD gets a structure to follow
+              rather than an empty box.
+            </p>
+            <p className="mt-3">
+              Mark it <strong>required</strong> only for genuinely large asks. A
+              PRD earns its cost when <strong>more than one person builds it</strong>,
+              when it <strong>crosses teams or systems</strong>, when it&apos;s{" "}
+              <strong>customer- or regulator-visible</strong>, or when it&apos;s{" "}
+              <strong>expensive to reverse</strong>. Small asks should stay
+              tickets — requiring a PRD for those just slows everyone down.
+            </p>
           </section>
 
           <section>
-            <ChapterHeading {...CHAPTERS[9]} audience="Admins" />
+            <ChapterHeading {...CHAPTERS[10]} audience="Admins" />
             <p>
               Under <strong>Teams</strong>, people are grouped into teams and
               teams into companies. Search finds a team by name, company, or a
@@ -471,7 +611,7 @@ export default function GuidePage() {
           </section>
 
           <section>
-            <ChapterHeading {...CHAPTERS[10]} />
+            <ChapterHeading {...CHAPTERS[11]} />
             <p>
               When a request is <strong>submitted</strong> into a workstream, the
               owning team is alerted on <strong>Slack</strong> (its connected
@@ -488,7 +628,7 @@ export default function GuidePage() {
           </section>
 
           <section>
-            <ChapterHeading {...CHAPTERS[11]} />
+            <ChapterHeading {...CHAPTERS[12]} />
             <div className="grid gap-4 sm:grid-cols-3">
               {[
                 {
@@ -497,7 +637,7 @@ export default function GuidePage() {
                 },
                 {
                   role: "Team admin",
-                  body: "Everything a member can, plus manage their team's people, rank their team's requester priority, own their workstream templates, and connect Slack.",
+                  body: "Everything a member can, plus manage their team's people, rank their team's requester priority, own their workstream templates, publish the FAQs on the workstreams they own, and connect Slack.",
                 },
                 {
                   role: "Global admin",

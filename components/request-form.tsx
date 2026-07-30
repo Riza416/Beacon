@@ -36,9 +36,11 @@ import {
   supportRequest,
   type SimilarRequest,
 } from "@/app/(app)/requests/actions";
-import { X, Lock, ThumbsUp, ExternalLink } from "lucide-react";
+import { X, Lock, ThumbsUp, ExternalLink, FileText } from "lucide-react";
 import { ScreenshotInput } from "@/components/screenshot-input";
 import { RepoActions } from "@/components/repo-actions";
+import { PrdGuide } from "@/components/prd-guide";
+import { PRD_STARTER_OUTLINE } from "@/lib/prd-template";
 import type { SubmitResult } from "@/lib/request-actions-types";
 import type {
   FieldDefinition,
@@ -101,6 +103,7 @@ const TYPE_CAPTIONS: Record<FieldType, string> = {
   multi_select: "Pick several",
   checkbox: "Yes / no",
   repo: "Repository",
+  prd: "Product requirements document",
 };
 
 function fieldKey(fieldId: string, type: FieldType): string {
@@ -1023,6 +1026,36 @@ export function RequestForm({
                         onChange={(e) => setValue(k, e.target.value)}
                         rows={4}
                       />
+                    )}
+                    {t === "prd" && (
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-xs text-muted-foreground">
+                            Long-form. Structure matters more than polish — the
+                            guide below walks you through it.
+                          </p>
+                          {(typeof v !== "string" || v.trim().length === 0) && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setValue(k, PRD_STARTER_OUTLINE)}
+                            >
+                              <FileText className="mr-1.5 h-3.5 w-3.5" />
+                              Insert starter outline
+                            </Button>
+                          )}
+                        </div>
+                        <Textarea
+                          id={inputId}
+                          value={typeof v === "string" ? v : ""}
+                          onChange={(e) => setValue(k, e.target.value)}
+                          rows={16}
+                          className="font-mono text-xs leading-relaxed"
+                          placeholder="Paste or write your PRD here — or insert the starter outline."
+                        />
+                        <PrdGuide />
+                      </div>
                     )}
                     {t === "url" && (
                       <Input

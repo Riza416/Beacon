@@ -7,6 +7,7 @@ import type { FieldType, RequiredLevel } from "@/lib/types";
 const VALID_FIELD_TYPES: FieldType[] = [
   "short_text",
   "long_text",
+  "prd",
   "url",
   "file",
   "image",

@@ -15,7 +15,8 @@ export type FieldType =
   | "select"
   | "multi_select"
   | "checkbox"
-  | "repo";
+  | "repo"
+  | "prd";
 export type RequiredLevel = "hard" | "soft" | "optional";
 
 type Row<T extends keyof Database["public"]["Tables"]> =

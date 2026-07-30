@@ -17,6 +17,7 @@ import { FieldRowActions } from "./_components/field-row-actions";
 const FIELD_TYPE_LABELS: Record<string, string> = {
   short_text: "Short text",
   long_text: "Long text",
+  prd: "Product requirements document",
   url: "URL",
   file: "File",
   image: "Image",

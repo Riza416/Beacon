@@ -52,6 +52,7 @@ const TYPE_CAPTIONS: Record<FieldType, string> = {
   multi_select: "Pick several",
   checkbox: "Yes / no",
   repo: "Repository",
+  prd: "Product requirements document",
 };
 
 function allowedTypes(f: FieldDefinition): FieldType[] {
@@ -767,6 +768,18 @@ function FieldValueRenderer({
         return <p className="text-sm text-muted-foreground">—</p>;
       return (
         <p className="whitespace-pre-wrap text-sm">{value.value_text}</p>
+      );
+    }
+    case "prd": {
+      if (!value.value_text)
+        return <p className="text-sm text-muted-foreground">—</p>;
+      // PRDs are long; keep them readable without dominating the page.
+      return (
+        <div className="max-h-96 overflow-y-auto rounded-md border bg-muted/20 p-3">
+          <p className="whitespace-pre-wrap font-mono text-xs leading-relaxed">
+            {value.value_text}
+          </p>
+        </div>
       );
     }
     case "url": {

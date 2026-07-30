@@ -42,6 +42,7 @@ import {
 const FIELD_TYPES: { value: FieldType; label: string }[] = [
   { value: "short_text", label: "Short text" },
   { value: "long_text", label: "Long text" },
+  { value: "prd", label: "Product requirements document" },
   { value: "url", label: "URL" },
   { value: "file", label: "File" },
   { value: "image", label: "Image" },
@@ -753,6 +754,7 @@ function PreviewInput({
     case "short_text":
       return <Input disabled />;
     case "long_text":
+    case "prd":
       return <Textarea disabled rows={4} />;
     case "url":
       return <Input disabled type="url" placeholder="https://" />;
