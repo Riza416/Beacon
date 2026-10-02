@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/select";
 import {
   DAY_MS,
+  IMPLIED_SPAN_DAYS,
   addDays,
   dependencyLinks,
   groupIntoLanes,
@@ -105,6 +106,7 @@ export interface RoadmapBoardProps {
 // ---------------------------------------------------------------------------
 
 const LABEL_W = 288;
+const UNSCHEDULED_LANE = "__unscheduled__";
 const ROW_H = 44;
 const LANE_H = 34;
 const BAR_H = 24;
@@ -390,8 +392,14 @@ export function RoadmapBoard({
     });
   }, [items, query, hideDone, statusFilter, onlyAttention, conflictIds, overrunIds]);
 
-  const scheduled = visible.filter((it) => barById.has(it.id));
-  const unscheduled = visible.filter((it) => !barById.has(it.id));
+  const scheduled = React.useMemo(
+    () => visible.filter((it) => barById.has(it.id)),
+    [visible, barById]
+  );
+  const unscheduled = React.useMemo(
+    () => visible.filter((it) => !barById.has(it.id)),
+    [visible, barById]
+  );
 
   // --- colour ---------------------------------------------------------------
   const colourOf = React.useCallback(
@@ -437,18 +445,25 @@ export function RoadmapBoard({
           : groupBy === "team"
             ? "No requesting team"
             : "No status";
-    return groupIntoLanes(byStart, keyOf, empty).map((lane) => ({
+    const out = groupIntoLanes(byStart, keyOf, empty).map((lane) => ({
       ...lane,
       rows: orderByDependencies(lane.rows, depsMap),
     }));
-  }, [scheduled, barById, blockersOf, groupBy]);
+    // Requests with no plan still get a row — in their own lane at the
+    // bottom, never at an invented position — so the timeline is always the
+    // view, and scheduling one is a click away.
+    if (unscheduled.length > 0) {
+      out.push({ id: UNSCHEDULED_LANE, label: "Not scheduled yet", rows: unscheduled });
+    }
+    return out;
+  }, [scheduled, unscheduled, barById, blockersOf, groupBy]);
 
   const layout = React.useMemo(() => {
     const rowY = new Map<string, number>();
     let y = 0;
     const blocks: { lane: (typeof lanes)[number]; top: number }[] = [];
     for (const lane of lanes) {
-      const showHeader = groupBy !== "none";
+      const showHeader = groupBy !== "none" || lane.id === UNSCHEDULED_LANE;
       blocks.push({ lane, top: y });
       if (showHeader) y += LANE_H;
       for (const r of lane.rows) {
@@ -749,11 +764,24 @@ export function RoadmapBoard({
       <Legend colourBy={colourBy} items={items} statuses={statusesPresent} />
 
       {/* Timeline */}
-      {scheduled.length === 0 ? (
+      {barById.size === 0 && items.length > 0 && (
+        <div className="flex items-start gap-2 rounded-lg border border-dashed bg-card px-4 py-3 text-sm text-muted-foreground">
+          <CalendarClock className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            Nothing has planned dates yet, so every request is in{" "}
+            <b className="font-medium text-foreground">Not scheduled yet</b> below.{" "}
+            {canScheduleAny
+              ? "Use Schedule on a row to give it a start and target date, and it moves onto the timeline."
+              : "The team that owns each workstream sets these dates."}
+          </span>
+        </div>
+      )}
+
+      {visible.length === 0 ? (
         <div className="rounded-lg border bg-card p-10 text-center text-sm text-muted-foreground">
-          {barById.size === 0
-            ? "Nothing is scheduled yet. Open a request below and give it a start and target date to put it on the roadmap."
-            : "Nothing scheduled matches these filters."}
+          {items.length === 0
+            ? "No submitted requests yet. They appear here as soon as one is submitted."
+            : "Nothing matches these filters."}
         </div>
       ) : (
         <div
@@ -822,7 +850,7 @@ export function RoadmapBoard({
               {/* Lanes + rows */}
               {layout.blocks.map(({ lane }) => (
                 <React.Fragment key={lane.id}>
-                  {groupBy !== "none" && (
+                  {(groupBy !== "none" || lane.id === UNSCHEDULED_LANE) && (
                     <div
                       className="relative flex border-y bg-muted/60"
                       style={{ height: LANE_H }}
@@ -831,6 +859,9 @@ export function RoadmapBoard({
                         className="sticky left-0 z-20 flex shrink-0 items-center gap-2 border-r bg-muted px-3 text-xs font-semibold"
                         style={{ width: LABEL_W }}
                       >
+                        {lane.id === UNSCHEDULED_LANE && (
+                          <CalendarClock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        )}
                         <span className="truncate">{lane.label}</span>
                         <Badge variant="secondary" className="h-5 px-1.5 tabular-nums">
                           {lane.rows.length}
@@ -838,7 +869,19 @@ export function RoadmapBoard({
                       </div>
                     </div>
                   )}
-                  {lane.rows.map((it) => (
+                  {lane.id === UNSCHEDULED_LANE
+                    ? lane.rows.map((it) => (
+                        <UnscheduledRow
+                          key={it.id}
+                          it={it}
+                          colour={colourOf(it)}
+                          xOf={xOf}
+                          todayX={todayX}
+                          trackW={trackW}
+                          onOpen={() => setSelectedId(it.id)}
+                        />
+                      ))
+                    : lane.rows.map((it) => (
                     <RoadmapRow
                       key={it.id}
                       it={it}
@@ -901,49 +944,6 @@ export function RoadmapBoard({
           : "Dates are set by the team that owns each workstream. Click any bar for the details."}
       </p>
 
-      {/* Unscheduled */}
-      {unscheduled.length > 0 && (
-        <section className="space-y-2">
-          <h2 className="flex items-center gap-2 text-sm font-medium">
-            <CalendarClock className="h-4 w-4 text-muted-foreground" />
-            Not scheduled yet
-            <Badge variant="secondary" className="tabular-nums">
-              {unscheduled.length}
-            </Badge>
-          </h2>
-          <div className="divide-y rounded-lg border bg-card">
-            {unscheduled.map((it) => (
-              <div key={it.id} className="flex flex-wrap items-center gap-3 px-4 py-2.5">
-                <div className="min-w-0 flex-1">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedId(it.id)}
-                    className="text-left font-medium hover:underline"
-                  >
-                    {it.title || "Untitled request"}
-                  </button>
-                  <p className="text-xs text-muted-foreground">
-                    {[it.product?.name ?? "No workstream", it.project?.name, it.deadline && `needed by ${fmtDay(parseDay(it.deadline)!)}`]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </p>
-                </div>
-                {it.status && (
-                  <Badge style={{ backgroundColor: it.status.color, color: "white" }}>
-                    {it.status.label}
-                  </Badge>
-                )}
-                {it.canSchedule && (
-                  <Button size="sm" variant="outline" onClick={() => setSelectedId(it.id)}>
-                    Schedule
-                  </Button>
-                )}
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
       <ScheduleDialog
         key={
           selected
@@ -951,6 +951,7 @@ export function RoadmapBoard({
             : "closed"
         }
         item={selected}
+        today={today}
         schedule={selected ? scheduleOf(selected) : null}
         bar={selected ? barById.get(selected.id) ?? null : null}
         blockers={(selected ? blockersOf.get(selected.id) ?? [] : []).map((id) => byId.get(id)!)}
@@ -1135,6 +1136,76 @@ function RoadmapRow({
   );
 }
 
+/** A request with no plan: same label column, and a Schedule action at today. */
+function UnscheduledRow({
+  it,
+  colour,
+  xOf,
+  todayX,
+  trackW,
+  onOpen,
+}: {
+  it: RoadmapItem;
+  colour: string;
+  xOf: (ms: number) => number;
+  todayX: number;
+  trackW: number;
+  onOpen: () => void;
+}) {
+  const due = parseDay(it.deadline);
+  const dueX = due !== null ? xOf(due) : null;
+  const at = Math.min(Math.max(todayX, 8), Math.max(trackW - 120, 8));
+  return (
+    <div className="relative flex border-b border-border/60" style={{ height: ROW_H }}>
+      <div
+        className="sticky left-0 z-20 flex shrink-0 items-center gap-2 border-r bg-card px-3"
+        style={{ width: LABEL_W, boxShadow: `inset 3px 0 0 ${colour}` }}
+      >
+        <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left" title={it.title}>
+          <span className="block truncate text-[13px] font-medium leading-tight">
+            {it.title || "Untitled request"}
+          </span>
+          <span className="block truncate text-[11px] text-muted-foreground">
+            {[it.product?.name ?? "No workstream", it.status?.label].filter(Boolean).join(" · ")}
+          </span>
+        </button>
+        <Link
+          href={it.href}
+          className="shrink-0 text-muted-foreground hover:text-foreground"
+          aria-label={`Open ${it.title}`}
+          title="Open the request"
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+        </Link>
+      </div>
+      <div className="relative" style={{ width: trackW }}>
+        {dueX !== null && dueX >= 0 && dueX <= trackW && (
+          <span
+            className="pointer-events-none absolute z-[2] h-2.5 w-2.5 -translate-x-1/2 rotate-45 border border-muted-foreground/60 bg-background"
+            style={{ left: dueX, top: ROW_H / 2 - 5 }}
+            title={`Requester needs it by ${fmtDay(due!)}`}
+            aria-hidden
+          />
+        )}
+        <button
+          type="button"
+          onClick={onOpen}
+          className={cn(
+            "absolute z-[4] inline-flex items-center gap-1.5 rounded-md border border-dashed px-2.5 text-[11.5px] font-medium",
+            it.canSchedule
+              ? "border-primary/60 text-primary hover:bg-primary/10"
+              : "border-border text-muted-foreground hover:bg-accent"
+          )}
+          style={{ left: at, top: (ROW_H - BAR_H) / 2, height: BAR_H }}
+        >
+          <CalendarClock className="h-3.5 w-3.5" />
+          {it.canSchedule ? "Schedule" : "No dates yet"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Dependency links
 // ---------------------------------------------------------------------------
@@ -1216,6 +1287,7 @@ function LinkLayer({
 
 function ScheduleDialog({
   item,
+  today,
   schedule,
   bar,
   blockers,
@@ -1226,6 +1298,7 @@ function ScheduleDialog({
   onSave,
 }: {
   item: RoadmapItem | null;
+  today: string;
   schedule: Schedule | null;
   bar: RoadmapBar | null;
   blockers: RoadmapItem[];
@@ -1237,8 +1310,17 @@ function ScheduleDialog({
 }) {
   // The parent keys this component on the request + its dates, so the inputs
   // start from the current schedule each time it opens.
-  const [start, setStart] = React.useState(schedule?.startDate ?? "");
-  const [target, setTarget] = React.useState(schedule?.targetDate ?? "");
+  // An unscheduled request opens on a suggested two-week span from today, so
+  // scheduling is "adjust and save" rather than two blank date pickers.
+  const fresh = !schedule?.startDate && !schedule?.targetDate && Boolean(item?.canSchedule);
+  const t0 = parseDay(today);
+  const [start, setStart] = React.useState(
+    schedule?.startDate ?? (fresh && t0 !== null ? today : "")
+  );
+  const [target, setTarget] = React.useState(
+    schedule?.targetDate ??
+      (fresh && t0 !== null ? toDay(addDays(t0, IMPLIED_SPAN_DAYS)) : "")
+  );
   const [saving, setSaving] = React.useState(false);
 
   if (!item) return null;
