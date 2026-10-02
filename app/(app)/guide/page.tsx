@@ -6,6 +6,7 @@ import {
   BookOpen,
   Compass,
   FolderKanban,
+  GanttChart,
   Inbox,
   Layers,
   LayoutList,
@@ -40,6 +41,7 @@ const CHAPTERS = [
   { id: "teams", n: 11, title: "Teams & companies", icon: Users },
   { id: "alerts", n: 12, title: "Notifications", icon: Bell },
   { id: "roles", n: 13, title: "Who can do what", icon: ShieldCheck },
+  { id: "roadmap", n: 14, title: "The roadmap", icon: GanttChart },
 ] as const;
 
 function Figure({
@@ -650,6 +652,52 @@ export default function GuidePage() {
                 </div>
               ))}
             </div>
+          </section>
+
+          <section>
+            <ChapterHeading {...CHAPTERS[13]} />
+            <p>
+              <Link href="/roadmap" className="font-medium underline">
+                Roadmap
+              </Link>{" "}
+              lays every submitted request you can see on a timeline: when the
+              owning team plans to start it, when they plan to land it, and how
+              it connects to the requests around it.
+            </p>
+            <ul className="space-y-2 pl-1">
+              <li>
+                <strong>Two kinds of date, kept apart.</strong> The{" "}
+                <strong>bar</strong> is the owning team&rsquo;s plan (start →
+                target). The <strong>diamond</strong> is the date the requester
+                asked for. When the plan lands after it, the diamond turns
+                amber — that is the conversation to have.
+              </li>
+              <li>
+                <strong>Connections.</strong> An arrow runs from a blocker to
+                each request that waits on it. A dashed red arrow means the
+                dependent is planned to start before its blocker finishes.
+                Hover a bar to fade everything it isn&rsquo;t connected to.
+              </li>
+              <li>
+                <strong>Group by</strong> project, workstream, requesting team
+                or status, and <strong>colour by</strong> any of the same.
+                Within a group, blockers always sit above the requests that
+                wait on them. <strong>Needs attention</strong> narrows to the
+                conflicts and the overruns.
+              </li>
+              <li>
+                <strong>Scheduling.</strong> Members of the team that owns a
+                workstream (and global admins) can drag a bar to move it, drag
+                an end to resize it, nudge it with the arrow keys, or click it
+                to type exact dates. Every change shows in the request&rsquo;s
+                activity. A dashed bar has only one date set — the other end is
+                a two-week placeholder until someone fills it in.
+              </li>
+              <li>
+                <strong>Not scheduled yet</strong> lists the requests with no
+                plan. Nothing is ever placed on the timeline at a guessed date.
+              </li>
+            </ul>
           </section>
         </div>
       </div>

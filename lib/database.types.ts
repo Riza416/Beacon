@@ -685,6 +685,8 @@ export type Database = {
           unack_reminder_at: string | null;
           deadline_reminder_at: string | null;
           owner_id: string | null;
+          start_date: string | null;
+          target_date: string | null;
         };
         Insert: {
           id?: string;
@@ -710,6 +712,8 @@ export type Database = {
           unack_reminder_at?: string | null;
           deadline_reminder_at?: string | null;
           owner_id?: string | null;
+          start_date?: string | null;
+          target_date?: string | null;
         };
         Update: {
           id?: string;
@@ -735,6 +739,8 @@ export type Database = {
           unack_reminder_at?: string | null;
           deadline_reminder_at?: string | null;
           owner_id?: string | null;
+          start_date?: string | null;
+          target_date?: string | null;
         };
         Relationships: [
           {

@@ -8,6 +8,7 @@ import {
   Inbox,
   SquarePen,
   FolderKanban,
+  GanttChart,
   UsersRound,
   Layers,
   Users,
@@ -62,6 +63,8 @@ export function AppSidebar({
     { href: "/", label: "Dashboard", icon: LayoutDashboard },
     { href: "/requests/mine", label: "My requests", icon: Inbox },
     { href: "/projects", label: "Projects", icon: FolderKanban },
+    // When the requests teams have taken on are planned to land.
+    { href: "/roadmap", label: "Roadmap", icon: GanttChart },
     // The workstream directory is for everyone — it's where you learn what a
     // team takes requests for before filing one.
     { href: "/workstreams", label: "Workstreams", icon: Layers },

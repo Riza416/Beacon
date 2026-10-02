@@ -73,7 +73,7 @@ type CommentWithAuthor = Comment & {
 
 interface RequestEventRow {
   id: string;
-  kind: "submitted" | "status_changed" | "owner_changed";
+  kind: "submitted" | "status_changed" | "owner_changed" | "scheduled";
   note: string | null;
   created_at: string;
   actor: { full_name: string | null; email: string | null } | null;
@@ -401,6 +401,27 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
                 </span>
               </span>
             )}
+            {(request.start_date || request.target_date) && (
+              <span>
+                {" · "}
+                <Link href="/roadmap" className="hover:underline">
+                  planned
+                </Link>{" "}
+                <span className="font-medium">
+                  {request.start_date ? (
+                    <LocalTime value={request.start_date} mode="dateFull" />
+                  ) : (
+                    "?"
+                  )}
+                  {" → "}
+                  {request.target_date ? (
+                    <LocalTime value={request.target_date} mode="dateFull" />
+                  ) : (
+                    "?"
+                  )}
+                </span>
+              </span>
+            )}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -571,6 +592,11 @@ export default async function RequestDetailPage({ params }: RequestPageProps) {
                     let text: string;
                     if (e.kind === "submitted") {
                       text = `${actor} submitted this request`;
+                    } else if (e.kind === "scheduled") {
+                      text =
+                        e.note === "cleared"
+                          ? `${actor} took this off the roadmap`
+                          : `${actor} scheduled this for ${e.note ?? "new dates"}`;
                     } else if (e.kind === "owner_changed") {
                       text =
                         e.note === "cleared"
